@@ -29,6 +29,9 @@ final class AudioRecorder: @unchecked Sendable {
     /// Recent loudness, roughly 0...1, for the pill's level meter.
     var level: Float { buffer.level }
 
+    /// Everything recorded since the last call, without stopping. Meeting notes read the mic this way.
+    func takeRecorded() -> [Float] { buffer.drain() }
+
     func start(completion: @escaping @MainActor (Error?) -> Void) {
         queue.async { [self] in
             // Reset on the queue, after any earlier stop() has drained its samples.
@@ -68,32 +71,12 @@ final class AudioRecorder: @unchecked Sendable {
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
             throw RecorderError.noInputDevice
         }
-        guard let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
-                                               sampleRate: Double(Audio.sampleRate),
-                                               channels: 1, interleaved: false),
-              let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
-            throw RecorderError.converterUnavailable
-        }
-
+        let resampler = Resampler()
         let sink = buffer
         input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { pcm, _ in
             // Audio thread. Convert this chunk and append it.
-            let ratio = targetFormat.sampleRate / pcm.format.sampleRate
-            let capacity = AVAudioFrameCount(Double(pcm.frameLength) * ratio) + 64
-            guard let out = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else { return }
-            var consumed = false
-            var error: NSError?
-            let status = converter.convert(to: out, error: &error) { _, inputStatus in
-                if consumed {
-                    inputStatus.pointee = .noDataNow
-                    return nil
-                }
-                consumed = true
-                inputStatus.pointee = .haveData
-                return pcm
-            }
-            guard status != .error, let channel = out.floatChannelData?[0], out.frameLength > 0 else { return }
-            sink.append(UnsafeBufferPointer(start: channel, count: Int(out.frameLength)))
+            let samples = resampler.convert(pcm)
+            samples.withUnsafeBufferPointer { sink.append($0) }
         }
 
         engine.prepare()
@@ -107,8 +90,42 @@ final class AudioRecorder: @unchecked Sendable {
     }
 }
 
+/// Converts whatever the device delivers (48 kHz stereo, 44.1 kHz, ...) to 16 kHz mono Float.
+/// Keeps its converter between calls so the resampling stays continuous.
+final class Resampler: @unchecked Sendable {
+    private let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(Audio.sampleRate),
+                                       channels: 1, interleaved: false)!
+    private var converter: AVAudioConverter?
+    private var inputFormat: AVAudioFormat?
+
+    func convert(_ pcm: AVAudioPCMBuffer) -> [Float] {
+        if inputFormat != pcm.format {
+            converter = AVAudioConverter(from: pcm.format, to: target)
+            converter?.downmix = true
+            inputFormat = pcm.format
+        }
+        guard let converter, pcm.frameLength > 0 else { return [] }
+        let ratio = target.sampleRate / pcm.format.sampleRate
+        let capacity = AVAudioFrameCount(Double(pcm.frameLength) * ratio) + 64
+        guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return [] }
+        var consumed = false
+        var error: NSError?
+        let status = converter.convert(to: out, error: &error) { _, inputStatus in
+            if consumed {
+                inputStatus.pointee = .noDataNow
+                return nil
+            }
+            consumed = true
+            inputStatus.pointee = .haveData
+            return pcm
+        }
+        guard status != .error, let channel = out.floatChannelData?[0], out.frameLength > 0 else { return [] }
+        return Array(UnsafeBufferPointer(start: channel, count: Int(out.frameLength)))
+    }
+}
+
 /// Thread-safe sample accumulator shared with the audio thread.
-private final class SampleBuffer: @unchecked Sendable {
+final class SampleBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private var samples: [Float] = []
     private var _level: Float = 0

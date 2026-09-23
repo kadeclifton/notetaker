@@ -20,7 +20,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     func updateIcon() {
         let symbol: String
-        if !controller.enabled {
+        if controller.meeting != nil {
+            symbol = "record.circle"
+        } else if !controller.enabled {
             symbol = "waveform.slash"
         } else if controller.isRecording {
             symbol = "waveform.circle.fill"
@@ -29,15 +31,19 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         } else {
             symbol = "waveform"
         }
+        // While a meeting records, the menu bar shows how long it has been going.
+        statusItem.button?.title = controller.meeting.map { " " + MeetingTranscript.clock($0.elapsed) } ?? ""
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Murmur")
         image?.isTemplate = true
         statusItem.button?.image = image
+        statusItem.button?.imagePosition = .imageLeft
         statusItem.button?.toolTip = controller.enabled ? "Murmur: hold \(controller.hotkeyDescription) to dictate" : "Murmur is off"
     }
 
     // Rebuilt every time it opens so it always reflects current state.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        controller.detectLocalLLM()
 
         let toggle = item(controller.enabled ? "Murmur is On" : "Murmur is Off", action: #selector(toggleEnabled), key: "e")
         toggle.state = controller.enabled ? .on : .off
@@ -46,6 +52,21 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(info("Hold \(controller.hotkeyDescription) to talk · double-tap for hands-free · Esc cancels"))
         menu.addItem(info("Transcription: \(controller.transcriberName)"))
         menu.addItem(info("Cleanup: \(controller.cleanerName)"))
+        if let local = controller.localLLM {
+            menu.addItem(info("Local models (\(local.server)): \(local.models.joined(separator: ", "))"))
+        }
+
+        menu.addItem(.separator())
+        if let status = controller.meetingStatus {
+            menu.addItem(info("Meeting notes: \(status)"))
+        } else if let meeting = controller.meeting {
+            menu.addItem(item("Stop Meeting Notes (\(MeetingTranscript.clock(meeting.elapsed)))", action: #selector(stopMeeting), key: "m"))
+            for warning in meeting.warnings.suffix(2) { menu.addItem(info("⚠️ " + warning)) }
+        } else {
+            menu.addItem(item("Start Meeting Notes", action: #selector(startMeeting), key: "m"))
+        }
+        menu.addItem(info("Meeting summaries: \(controller.summaryName)"))
+        menu.addItem(item("Open Meeting Notes Folder", action: #selector(openMeetings)))
         for problem in controller.problems { menu.addItem(info("⚠️ " + problem)) }
         if let failure = controller.lastFailure { menu.addItem(info("Last issue: " + failure)) }
 
@@ -76,6 +97,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
         if Permissions.microphone != .authorized {
             items.append(item("⚠️ Grant Microphone…", action: #selector(openMicrophone)))
+        }
+        if controller.config.meeting.captureSystemAudio && !Permissions.screenRecording {
+            items.append(item("Grant Screen & System Audio Recording (for meeting audio)…", action: #selector(openScreenRecording)))
         }
         return items
     }
@@ -161,6 +185,23 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         } else {
             Permissions.open(.microphone)
         }
+    }
+
+    @objc private func startMeeting() {
+        controller.startMeeting()
+    }
+
+    @objc private func stopMeeting() {
+        controller.stopMeeting()
+    }
+
+    @objc private func openMeetings() {
+        controller.openMeetingsFolder()
+    }
+
+    @objc private func openScreenRecording() {
+        Permissions.requestScreenRecording()
+        Permissions.open(.screenRecording)
     }
 
     @objc private func quit() {

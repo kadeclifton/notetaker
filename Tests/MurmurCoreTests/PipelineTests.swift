@@ -133,8 +133,9 @@ final class APIClientTests: XCTestCase {
 
     func testChatCompletionsRequest() async throws {
         let client = FakeHTTPClient { _ in (200, #"{"choices":[{"message":{"role":"assistant","content":"Hello, world."}}]}"#) }
-        let cleaner = ChatCompletionsCleaner(service: "OpenAI", baseURL: HostedAPI.openAI.baseURL, apiKey: "sk",
-                                             model: "gpt-4.1-mini", extraInstructions: "Use British spelling.", client: client)
+        let cleaner = LLMCleaner(chat: OpenAICompatibleChat(service: "OpenAI", baseURL: HostedAPI.openAI.baseURL, apiKey: "sk",
+                                                             model: "gpt-4.1-mini", client: client),
+                                 extraInstructions: "Use British spelling.")
         let output = try await cleaner.clean("um hello world", context: CleanupContext(appName: "Slack"))
         XCTAssertEqual(output, "Hello, world.")
         let request = try XCTUnwrap(client.requests.first)
@@ -150,7 +151,7 @@ final class APIClientTests: XCTestCase {
 
     func testAnthropicRequest() async throws {
         let client = FakeHTTPClient { _ in (200, #"{"content":[{"type":"text","text":"Hi there."}],"stop_reason":"end_turn"}"#) }
-        let cleaner = AnthropicCleaner(apiKey: "sk-ant", model: "claude-haiku-4-5", client: client)
+        let cleaner = LLMCleaner(chat: AnthropicChat(apiKey: "sk-ant", model: "claude-haiku-4-5", client: client))
         let output = try await cleaner.clean("uh hi there", context: CleanupContext())
         XCTAssertEqual(output, "Hi there.")
         let request = try XCTUnwrap(client.requests.first)

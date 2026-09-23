@@ -26,10 +26,21 @@ final class DictationController {
     private var recordingAnnounced = false
 
     /// Problems worth showing in the menu (bad settings, missing model, last failure).
-    private(set) var problems: [String] = []
+    var problems: [String] { setupProblems + (pipelineProblem.map { [$0] } ?? []) }
+    private var setupProblems: [String] = []
+    private var pipelineProblem: String?
     private(set) var lastFailure: String?
     private(set) var transcriberName = "–"
     private(set) var cleanerName = "off"
+    private(set) var summaryName = "off"
+
+    /// Ollama or LM Studio, if one is running. Checked on launch, on reload and when the menu opens.
+    private(set) var localLLM: LocalLLM?
+
+    /// The meeting being recorded, if any.
+    private(set) var meeting: MeetingRecorder?
+    /// "Starting…", "Summarizing…": shown in the menu while a meeting starts or wraps up.
+    private(set) var meetingStatus: String?
 
     /// Called whenever something the menu shows has changed.
     var onChange: (() -> Void)?
@@ -61,13 +72,13 @@ final class DictationController {
     /// Re-reads config.json and .env and re-installs the hotkey.
     func reloadConfig() {
         cancelEverything()
-        problems = []
+        setupProblems = []
         lastFailure = nil
         do {
             config = try Config.loadOrCreate(at: AppPaths.configFile)
         } catch {
             config = Config()
-            problems.append("\(error) Using defaults.")
+            setupProblems.append("\(error) Using defaults.")
         }
         env = DotEnv.load(from: AppPaths.envFile)
         machine = DictationStateMachine(timing: .init(config))
@@ -76,23 +87,122 @@ final class DictationController {
             hotkeySpec = try HotkeySpec.parse(config.hotkey)
         } catch {
             hotkeySpec = .modifier(.fn)
-            problems.append("Hotkey: \(error) Using fn.")
+            setupProblems.append("Hotkey: \(error) Using fn.")
         }
         pill.model.hotkeyName = hotkeySpec.displayName
 
-        // Build the pipeline once now so setup problems show up in the menu right away.
+        refreshModels()
+        // Load the Whisper model now, so the first dictation does not wait for it.
+        if let server = (try? config.makeTranscriber(env: env) as? WhisperServerTranscriber)?.server {
+            Task.detached { try? await server.ensureRunning() }
+        }
+        detectLocalLLM()
+        installHotkey()
+        onChange?()
+    }
+
+    /// Looks for Ollama / LM Studio again (they may have been started since).
+    func detectLocalLLM() {
+        Task { [weak self] in
+            let found = await LocalLLM.detect()
+            guard let self, found != self.localLLM else { return }
+            self.localLLM = found
+            self.refreshModels()
+            self.onChange?()
+        }
+    }
+
+    /// Builds the pipeline once so the menu shows what will be used and any setup problem.
+    private func refreshModels() {
+        pipelineProblem = nil
         do {
-            let pipeline = try DictationPipeline(config: config, env: env)
+            let pipeline = try DictationPipeline(config: config, env: env, local: localLLM)
             transcriberName = pipeline.transcriber.name
-            cleanerName = pipeline.cleaner?.name ?? (config.cleanup.enabled ? "off (no API key)" : "off")
+            cleanerName = pipeline.cleaner?.name ?? (config.cleanup.enabled ? "off (no API key or local model)" : "off")
         } catch {
             transcriberName = "not ready"
             cleanerName = "–"
-            problems.append("\(error)")
+            pipelineProblem = "\(error)"
         }
+        let m = config.meeting
+        let summary = m.summarize
+            ? try? config.makeChatModel(provider: m.summaryProvider, model: m.summaryModel, baseURL: config.cleanup.baseURL,
+                                        env: env, local: localLLM)
+            : nil
+        summaryName = summary?.name ?? (m.summarize ? "off (no API key or local model)" : "off")
+    }
 
-        installHotkey()
+    // MARK: Meetings
+
+    func startMeeting() {
+        guard meeting == nil, meetingStatus == nil else { return }
+        meetingStatus = "Starting…"
         onChange?()
+        Task { [weak self] in
+            guard let self else { return }
+            // A local model may have been started since launch.
+            self.localLLM = await LocalLLM.detect()
+            self.refreshModels()
+            do {
+                let language = self.config.transcription.language.lowercased()
+                let vocabulary = self.config.transcription.vocabulary.filter { !$0.isEmpty }
+                let m = self.config.meeting
+                let setup = MeetingRecorder.Setup(
+                    config: m,
+                    transcriber: try self.config.makeTranscriber(env: self.env),
+                    language: language.isEmpty || language == "auto" ? nil : language,
+                    prompt: vocabulary.isEmpty ? nil : vocabulary.joined(separator: ", ") + ".",
+                    summarizer: m.summarize
+                        ? try? self.config.makeChatModel(provider: m.summaryProvider, model: m.summaryModel,
+                                                         baseURL: self.config.cleanup.baseURL, env: self.env, local: self.localLLM)
+                        : nil)
+                let recorder = try await MeetingRecorder.start(setup)
+                recorder.onChange = { [weak self] in self?.onChange?() }
+                recorder.onTimeLimit = { [weak self] in self?.stopMeeting() }
+                self.meeting = recorder
+                self.play("Tink")
+                self.flash("Meeting notes are recording")
+            } catch {
+                self.fail("Could not start meeting notes: \(error)")
+                if Permissions.microphone == .denied { Permissions.open(.microphone) }
+            }
+            self.meetingStatus = nil
+            self.onChange?()
+        }
+    }
+
+    func stopMeeting(summarize: Bool = true, then: (@MainActor () -> Void)? = nil) {
+        guard let meeting, meetingStatus == nil else {
+            // Nothing to stop, or it is already finishing (the transcript is saved as it goes).
+            then?()
+            return
+        }
+        meetingStatus = "Finishing…"
+        play("Pop")
+        onChange?()
+        Task { [weak self] in
+            let url = await meeting.stop(summarize: summarize) { message in
+                self?.meetingStatus = message
+                if self?.config.feedback.pill == true { self?.pill.show(.message(message, isError: false)) }
+                self?.onChange?()
+            }
+            guard let self else { return }
+            self.meeting = nil
+            self.meetingStatus = nil
+            self.flash("Meeting notes saved")
+            self.onChange?()
+            if let then {
+                then()
+            } else {
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
+    func openMeetingsFolder() {
+        let folder = URL(fileURLWithPath: AppPaths.expandTilde(config.meeting.folder), isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(folder)
     }
 
     private func installHotkey() {
@@ -232,7 +342,7 @@ final class DictationController {
         }
         let pipeline: DictationPipeline
         do {
-            pipeline = try DictationPipeline(config: config, env: env)
+            pipeline = try DictationPipeline(config: config, env: env, local: localLLM)
         } catch {
             fail("\(error)")
             return

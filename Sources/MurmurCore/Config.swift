@@ -12,12 +12,15 @@ public enum TranscriptionEngine: String, Codable, Sendable, CaseIterable {
 
 /// Which LLM cleans up the raw transcript.
 public enum CleanupProvider: String, Codable, Sendable, CaseIterable {
-    /// Groq, then OpenAI, then Anthropic, whichever has a key. No key: cleanup is skipped.
+    /// Groq, then OpenAI, then Anthropic, whichever has a key, then a local Ollama or LM Studio.
+    /// None of those: cleanup is skipped.
     case auto
     case groq
     case openai
     case anthropic
-    /// Any OpenAI-compatible chat endpoint set in `cleanup.baseURL` (Ollama, LM Studio, llama.cpp server).
+    /// Ollama or LM Studio running on this Mac, found automatically. No key, nothing leaves the machine.
+    case local
+    /// Any OpenAI-compatible chat endpoint set in `cleanup.baseURL` (llama.cpp server, vLLM, ...).
     case custom
 }
 
@@ -37,6 +40,7 @@ public struct Config: Codable, Equatable, Sendable {
     public var handsFree = HandsFreeConfig()
     public var timing = TimingConfig()
     public var feedback = FeedbackConfig()
+    public var meeting = MeetingConfig()
 
     public init() {}
 }
@@ -62,6 +66,11 @@ public struct WhisperCppConfig: Codable, Equatable, Sendable {
     public var model: String = "models/ggml-small.en.bin"
     /// 0 picks a sensible count for this machine.
     public var threads: Int = 0
+    /// Run `whisper-server` in the background with the model loaded, so dictation does not wait
+    /// for a model load every time. Uses the model's size in memory while Murmur runs.
+    public var keepModelLoaded: Bool = true
+    /// Local port for that server (it only listens on 127.0.0.1).
+    public var serverPort: Int = 47813
 
     public init() {}
 }
@@ -108,6 +117,25 @@ public struct TimingConfig: Codable, Equatable, Sendable {
     /// With a modifier-only hotkey (like fn), another key pressed this soon after it
     /// means you were typing a shortcut such as fn+arrow, so the recording is dropped.
     public var chordGuardMs: Int = 400
+
+    public init() {}
+}
+
+public struct MeetingConfig: Codable, Equatable, Sendable {
+    /// Where meeting notes are saved, one Markdown file per meeting.
+    public var folder: String = "~/Documents/Murmur Meetings"
+    /// Record the call's audio (everyone else) as well as your microphone. Needs the
+    /// Screen & System Audio Recording permission.
+    public var captureSystemAudio: Bool = true
+    /// Audio is transcribed in pieces of about this many seconds while the meeting runs.
+    public var chunkSeconds: Double = 30
+    /// A recording stops by itself after this long.
+    public var maxHours: Double = 4
+    public var summarize: Bool = true
+    /// Which LLM writes the summary. Same choices as cleanup.provider; "local" keeps it on this Mac.
+    public var summaryProvider: CleanupProvider = .auto
+    public var summaryModel: String = ""
+    public var summaryTimeoutSeconds: Double = 600
 
     public init() {}
 }
@@ -197,7 +225,11 @@ extension Config {
           // Relative paths are inside this settings folder.
           "model": "models/ggml-small.en.bin",
           // 0: pick automatically.
-          "threads": 0
+          "threads": 0,
+          // Keep the model loaded in a background whisper-server so dictation starts
+          // transcribing immediately. false: run whisper-cli fresh each time (slower, less memory).
+          "keepModelLoaded": true,
+          "serverPort": 47813
         },
         "groqModel": "whisper-large-v3-turbo",
         "openaiModel": "whisper-1",
@@ -245,6 +277,22 @@ extension Config {
       "feedback": {
         "sounds": true,
         "pill": true
+      },
+
+      // Meeting Notes (menu bar → Start Meeting Notes): records your mic and the call's audio,
+      // transcribes as it goes, and writes a summary when you stop.
+      "meeting": {
+        "folder": "~/Documents/Murmur Meetings",
+        // Also record what others say (the audio playing on this Mac). Needs the
+        // Screen & System Audio Recording permission. false: your microphone only.
+        "captureSystemAudio": true,
+        "chunkSeconds": 30,
+        "maxHours": 4,
+        "summarize": true,
+        // Same choices as cleanup.provider. "local" = Ollama or LM Studio on this Mac.
+        "summaryProvider": "auto",
+        "summaryModel": "",
+        "summaryTimeoutSeconds": 600
       }
     }
 

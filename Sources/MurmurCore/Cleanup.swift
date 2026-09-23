@@ -100,115 +100,23 @@ public enum CleanupGuard {
     }
 }
 
-// MARK: - OpenAI-compatible chat completions (OpenAI, Groq, Ollama, LM Studio)
-
-public struct ChatCompletionsCleaner: TextCleaner {
-    public var service: String
-    public var baseURL: URL
-    public var apiKey: String?
-    public var model: String
+/// Cleans a transcript with any chat model.
+public struct LLMCleaner: TextCleaner {
+    public var chat: ChatModel
     public var timeout: TimeInterval
     public var extraInstructions: String
-    public var client: HTTPClient
 
-    public init(service: String, baseURL: URL, apiKey: String?, model: String, timeout: TimeInterval = 10,
-                extraInstructions: String = "", client: HTTPClient = URLSessionHTTPClient()) {
-        self.service = service
-        self.baseURL = baseURL
-        self.apiKey = apiKey
-        self.model = model
+    public init(chat: ChatModel, timeout: TimeInterval = 10, extraInstructions: String = "") {
+        self.chat = chat
         self.timeout = timeout
         self.extraInstructions = extraInstructions
-        self.client = client
     }
 
-    public var name: String { "\(service) \(model)" }
+    public var name: String { chat.name }
 
     public func clean(_ transcript: String, context: CleanupContext) async throws -> String {
-        let body: [String: Any] = [
-            "model": model,
-            "temperature": 0,
-            "messages": [
-                ["role": "system", "content": CleanupPrompt.system(extraInstructions: extraInstructions)],
-                ["role": "user", "content": CleanupPrompt.user(transcript, context: context)],
-            ],
-        ]
-        var request = URLRequest(url: baseURL.appendingPathComponent("chat/completions"))
-        request.httpMethod = "POST"
-        request.timeoutInterval = timeout
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let apiKey, !apiKey.isEmpty {
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let data = try await HTTP.send(request, client: client, service: service)
-        struct Response: Decodable {
-            struct Choice: Decodable {
-                struct Message: Decodable { let content: String? }
-                let message: Message
-            }
-            let choices: [Choice]
-        }
-        guard let response = try? JSONDecoder().decode(Response.self, from: data),
-              let first = response.choices.first else {
-            throw TranscriptionError.badResponse(String(decoding: data.prefix(200), as: UTF8.self))
-        }
-        return first.message.content ?? ""
-    }
-}
-
-// MARK: - Anthropic Messages API
-
-public struct AnthropicCleaner: TextCleaner {
-    public var apiKey: String
-    public var model: String
-    public var timeout: TimeInterval
-    public var extraInstructions: String
-    public var baseURL: URL
-    public var client: HTTPClient
-
-    public init(apiKey: String, model: String, timeout: TimeInterval = 10, extraInstructions: String = "",
-                baseURL: URL = HostedAPI.anthropic.baseURL, client: HTTPClient = URLSessionHTTPClient()) {
-        self.apiKey = apiKey
-        self.model = model
-        self.timeout = timeout
-        self.extraInstructions = extraInstructions
-        self.baseURL = baseURL
-        self.client = client
-    }
-
-    public var name: String { "Anthropic \(model)" }
-
-    public func clean(_ transcript: String, context: CleanupContext) async throws -> String {
-        let body: [String: Any] = [
-            "model": model,
-            "max_tokens": 4096,
-            "temperature": 0,
-            "system": CleanupPrompt.system(extraInstructions: extraInstructions),
-            "messages": [
-                ["role": "user", "content": CleanupPrompt.user(transcript, context: context)],
-            ],
-        ]
-        var request = URLRequest(url: baseURL.appendingPathComponent("messages"))
-        request.httpMethod = "POST"
-        request.timeoutInterval = timeout
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let data = try await HTTP.send(request, client: client, service: "Anthropic")
-        struct Response: Decodable {
-            struct Block: Decodable {
-                let type: String
-                let text: String?
-            }
-            let content: [Block]
-        }
-        guard let response = try? JSONDecoder().decode(Response.self, from: data) else {
-            throw TranscriptionError.badResponse(String(decoding: data.prefix(200), as: UTF8.self))
-        }
-        return response.content.filter { $0.type == "text" }.compactMap(\.text).joined()
+        try await chat.complete(system: CleanupPrompt.system(extraInstructions: extraInstructions),
+                                user: CleanupPrompt.user(transcript, context: context),
+                                maxTokens: 4096, timeout: timeout)
     }
 }

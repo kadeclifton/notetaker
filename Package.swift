@@ -20,6 +20,8 @@ let package = Package(
                 .linkedFramework("AVFoundation", .when(platforms: [.macOS])),
                 .linkedFramework("Carbon", .when(platforms: [.macOS])),
                 .linkedFramework("ServiceManagement", .when(platforms: [.macOS])),
+                .linkedFramework("ScreenCaptureKit", .when(platforms: [.macOS])),
+                .linkedFramework("CoreMedia", .when(platforms: [.macOS])),
             ]
         ),
         .testTarget(name: "MurmurCoreTests", dependencies: ["MurmurCore"]),

@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import MurmurCore
 
 @main
 enum MurmurApp {
@@ -28,6 +29,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.controller = controller
         self.statusMenu = statusMenu
         controller.start()
+    }
+
+    /// Quitting mid-meeting saves the transcript first (without waiting for a summary).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let controller, controller.meeting != nil else { return .terminateNow }
+        controller.stopMeeting(summarize: false) {
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // whisper-server is a separate process; do not leave it running.
+        WhisperServer.stopShared()
     }
 }
 #endif

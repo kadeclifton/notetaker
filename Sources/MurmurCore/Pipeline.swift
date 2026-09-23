@@ -27,7 +27,7 @@ extension CleanupProvider {
         case .groq: return .groq
         case .openai: return .openAI
         case .anthropic: return .anthropic
-        case .auto, .custom: return nil
+        case .auto, .local, .custom: return nil
         }
     }
 
@@ -37,7 +37,7 @@ extension CleanupProvider {
         case .openai: return "gpt-4.1-mini"
         case .anthropic: return "claude-haiku-4-5"
         case .custom: return "llama3.2"
-        case .auto: return ""
+        case .auto, .local: return ""
         }
     }
 }
@@ -45,6 +45,7 @@ extension CleanupProvider {
 public enum SetupError: Error, CustomStringConvertible, Equatable {
     case missingKey(String)
     case badBaseURL(String)
+    case noLocalLLM
 
     public var description: String {
         switch self {
@@ -52,6 +53,8 @@ public enum SetupError: Error, CustomStringConvertible, Equatable {
             return "\(name) is not set. Add it to ~/.config/murmur/.env, or change the provider in config.json."
         case let .badBaseURL(value):
             return "cleanup.baseURL \"\(value)\" is not a valid URL."
+        case .noLocalLLM:
+            return "No Ollama or LM Studio with a chat model is running on this Mac. Start one, or pick another provider."
         }
     }
 }
@@ -72,39 +75,70 @@ extension Config {
                                          model: api == .groq ? t.groqModel : t.openaiModel,
                                          timeout: t.timeoutSeconds, client: client)
         }
+        let model = AppPaths.resolve(t.whisperCpp.model)
+        if t.whisperCpp.keepModelLoaded,
+           let server = WhisperCppTranscriber.locateServer(configuredCli: t.whisperCpp.binary, environment: env) {
+            let settings = WhisperServer.Settings(
+                binary: server, model: model, port: t.whisperCpp.serverPort,
+                threads: t.whisperCpp.threads > 0 ? t.whisperCpp.threads : WhisperCppTranscriber.defaultThreads,
+                language: t.language.isEmpty ? "auto" : t.language.lowercased())
+            return WhisperServerTranscriber(server: WhisperServer.shared(settings),
+                                            modelName: ((model as NSString).lastPathComponent as NSString).deletingPathExtension,
+                                            timeout: max(t.timeoutSeconds, 120), client: client)
+        }
         guard let binary = WhisperCppTranscriber.locateBinary(configured: t.whisperCpp.binary, environment: env) else {
             throw TranscriptionError.whisperNotFound
         }
-        return WhisperCppTranscriber(binary: binary, model: AppPaths.resolve(t.whisperCpp.model), threads: t.whisperCpp.threads)
+        return WhisperCppTranscriber(binary: binary, model: model, threads: t.whisperCpp.threads)
     }
 
-    /// Builds the cleanup LLM, or nil when cleanup is off or `auto` finds no key.
-    public func makeCleaner(env: [String: String], client: HTTPClient = URLSessionHTTPClient()) throws -> TextCleaner? {
+    /// Builds the cleanup LLM, or nil when cleanup is off or `auto` finds nothing to use.
+    public func makeCleaner(env: [String: String], local: LocalLLM? = nil,
+                            client: HTTPClient = URLSessionHTTPClient()) throws -> TextCleaner? {
         let c = cleanup
-        guard c.enabled else { return nil }
-        var provider = c.provider
-        if provider == .auto {
-            let candidates: [CleanupProvider] = [.groq, .openai, .anthropic]
-            guard let found = candidates.first(where: { $0.hostedAPI?.key(in: env) != nil }) else { return nil }
-            provider = found
-        }
-        let model = c.model.isEmpty ? provider.defaultModel : c.model
+        guard c.enabled,
+              let chat = try makeChatModel(provider: c.provider, model: c.model, baseURL: c.baseURL,
+                                           env: env, local: local, client: client) else { return nil }
+        return LLMCleaner(chat: chat, timeout: c.timeoutSeconds, extraInstructions: c.extraInstructions)
+    }
 
-        if provider == .custom {
-            let base = c.baseURL.isEmpty ? "http://localhost:11434/v1" : c.baseURL
+    /// Resolves a provider setting to a chat model. `local` is what `LocalLLM.detect` found, if anything.
+    /// Returns nil only for `auto` with nothing available.
+    public func makeChatModel(provider: CleanupProvider, model: String, baseURL: String = "",
+                              env: [String: String], local: LocalLLM?,
+                              client: HTTPClient = URLSessionHTTPClient()) throws -> ChatModel? {
+        var provider = provider
+        if provider == .auto {
+            let hosted: [CleanupProvider] = [.groq, .openai, .anthropic]
+            if let found = hosted.first(where: { $0.hostedAPI?.key(in: env) != nil }) {
+                provider = found
+            } else if local?.pickModel(preferred: model) != nil {
+                provider = .local
+            } else {
+                return nil
+            }
+        }
+        let modelName = model.isEmpty ? provider.defaultModel : model
+
+        switch provider {
+        case .local:
+            guard let local, let picked = local.pickModel(preferred: model) else { throw SetupError.noLocalLLM }
+            return OpenAICompatibleChat(service: local.server, baseURL: local.baseURL, apiKey: nil, model: picked, client: client)
+        case .custom:
+            let base = baseURL.isEmpty ? "http://localhost:11434/v1" : baseURL
             guard let url = URL(string: base), url.scheme != nil else { throw SetupError.badBaseURL(base) }
             let key = env["CLEANUP_API_KEY"].flatMap { $0.isEmpty ? nil : $0 }
-            return ChatCompletionsCleaner(service: url.host ?? "custom", baseURL: url, apiKey: key, model: model,
-                                          timeout: c.timeoutSeconds, extraInstructions: c.extraInstructions, client: client)
+            return OpenAICompatibleChat(service: url.host ?? "custom", baseURL: url, apiKey: key, model: modelName, client: client)
+        case .anthropic:
+            let api = HostedAPI.anthropic
+            return AnthropicChat(apiKey: try api.requireKey(in: env), model: modelName, baseURL: api.baseURL, client: client)
+        case .groq, .openai:
+            guard let api = provider.hostedAPI else { return nil }
+            return OpenAICompatibleChat(service: api.name, baseURL: api.baseURL, apiKey: try api.requireKey(in: env),
+                                        model: modelName, client: client)
+        case .auto:
+            return nil
         }
-        guard let api = provider.hostedAPI else { return nil }
-        let key = try api.requireKey(in: env)
-        if api == .anthropic {
-            return AnthropicCleaner(apiKey: key, model: model, timeout: c.timeoutSeconds,
-                                    extraInstructions: c.extraInstructions, baseURL: api.baseURL, client: client)
-        }
-        return ChatCompletionsCleaner(service: api.name, baseURL: api.baseURL, apiKey: key, model: model,
-                                      timeout: c.timeoutSeconds, extraInstructions: c.extraInstructions, client: client)
     }
 }
 
@@ -131,12 +165,13 @@ public struct DictationPipeline: Sendable {
         self.prompt = prompt
     }
 
-    public init(config: Config, env: [String: String], client: HTTPClient = URLSessionHTTPClient()) throws {
+    public init(config: Config, env: [String: String], local: LocalLLM? = nil,
+                client: HTTPClient = URLSessionHTTPClient()) throws {
         let language = config.transcription.language.trimmingCharacters(in: .whitespaces).lowercased()
         let vocabulary = config.transcription.vocabulary.filter { !$0.isEmpty }
         self.init(
             transcriber: try config.makeTranscriber(env: env, client: client),
-            cleaner: try config.makeCleaner(env: env, client: client),
+            cleaner: try config.makeCleaner(env: env, local: local, client: client),
             language: language.isEmpty || language == "auto" ? nil : language,
             prompt: vocabulary.isEmpty ? nil : vocabulary.joined(separator: ", ") + "."
         )

@@ -18,6 +18,12 @@ the cleaned-up text appears at your cursor in whatever app has focus.
   the clipboard so you can paste it again; or set a flag to restore your previous clipboard.
 - **A tiny pill** at the bottom of the screen shows when it's live, which mode you're in, the input
   level, and a countdown near the hands-free limit.
+- **Meeting Notes.** Start it from the menu bar before a call. Murmur records your mic ("Me") and the
+  call's audio ("Others"), transcribes as it goes, and when you stop writes a Markdown file with a
+  summary, decisions, action items and the full transcript. Works with Zoom, Meet, Teams, FaceTime,
+  anything that plays through your Mac.
+- **Local models, no keys needed.** Murmur finds Ollama or LM Studio running on your Mac and uses it for
+  cleanup and meeting summaries.
 - **Menu bar** toggle for on/off, launch at login, and shortcuts to the settings file and `.env`.
 - **No accounts, no telemetry.** Nothing leaves your Mac unless you configure a cloud API.
   With the local model and cleanup off (or a local LLM), it works fully offline.
@@ -64,6 +70,7 @@ macOS asks for three permissions. Murmur can't work without them, and the menu s
 | **Microphone** | System Settings → Privacy & Security → Microphone | Record your voice while the hotkey is held. macOS prompts on first launch. |
 | **Input Monitoring** | System Settings → Privacy & Security → Input Monitoring | See the hotkey and Esc while other apps have focus. Murmur only listens for those keys; nothing is logged or stored. |
 | **Accessibility** | System Settings → Privacy & Security → Accessibility | Send Cmd-V (or keystrokes) into the focused app. Also needed if your hotkey is a shortcut like `ctrl+option+space`, so Murmur can stop it from typing a space. |
+| **Screen & System Audio Recording** | System Settings → Privacy & Security → Screen & System Audio Recording | Meeting Notes only: record the call's audio (what the other people say). macOS asks the first time you start Meeting Notes. Murmur records audio only; it never saves the screen. Not needed if `meeting.captureSystemAudio` is off. |
 
 After granting **Input Monitoring** or **Accessibility**, quit and reopen Murmur. macOS often
 only applies these to a freshly started process.
@@ -102,6 +109,60 @@ Grant the permissions once more; they then survive rebuilds.
 Silent recordings are dropped before transcription, since Whisper tends to invent text
 ("Thanks for watching!") for silence.
 
+**Speed.** With the local model, Murmur keeps `whisper-server` (part of `brew install whisper-cpp`)
+running in the background with the model loaded, so a dictation only waits for the transcription
+itself, not a model load. The very first transcription after installing is still slow: macOS compiles
+Whisper's GPU code once. Set `whisperCpp.keepModelLoaded` to `false` to go back to running
+`whisper-cli` each time (uses less memory, slower).
+
+## Meeting Notes
+
+1. Menu bar icon → **Start Meeting Notes** (⌘M while the menu is open). The icon turns into ⏺ with a timer.
+2. Have your meeting. Dictation still works at the same time.
+3. Menu bar icon → **Stop Meeting Notes**. Murmur transcribes the last bit, writes the summary and opens
+   the notes, saved as `~/Documents/Murmur Meetings/2026-09-23 1530 Meeting.md`.
+
+What's in the file:
+
+- **Summary, Decisions, Action items, Open questions**, written by your local model (or an API model,
+  see `meeting.summaryProvider`).
+- **Transcript**, with timestamps and who spoke: **Me** is your microphone and **Others** is the call's
+  audio. Murmur can't tell the other people apart, but the summary uses names when people say them.
+
+The transcript is written to the file every ~30 seconds while the meeting runs, so a crash or a quit
+keeps everything up to that point. Quitting mid-meeting saves the transcript without a summary.
+
+**Headphones help.** Without them your mic also hears the call. Murmur drops lines from "Me" that
+repeat what "Others" said at the same moment, but headphones give the cleanest transcript.
+
+**Consent.** Recording people may require their permission where you or they live. Tell people
+you're taking notes.
+
+## Local models (no API keys)
+
+Murmur looks for [Ollama](https://ollama.com) (port 11434) and [LM Studio](https://lmstudio.ai)'s
+local server (port 1234) on launch and whenever you open the menu. The menu shows what it found,
+e.g. `Local models (Ollama): llama3.2:3b, qwen3:8b`. It picks a chat model in this order: Qwen 3,
+Qwen 2.5, Llama 3.2, Llama 3.1, Gemma, Mistral, Phi. It skips embedding models.
+
+Not sure what you have installed? In Terminal:
+
+```sh
+ollama list                  # Ollama
+ls ~/.lmstudio/models        # LM Studio
+```
+
+With no API keys in `.env`, `"provider": "auto"` already uses the local model for cleanup and
+meeting summaries. To use it even when you have keys, set `"provider": "local"` under `cleanup`
+and/or `"summaryProvider": "local"` under `meeting`. Set `"model"` / `"summaryModel"` to pick a
+specific one, e.g. `"qwen3:8b"`.
+
+For LM Studio, start its server: Developer tab → **Start Server**, with a model loaded.
+
+Rough guide on Apple Silicon: a 3–4B model (`llama3.2:3b`, `qwen3:4b`) cleans up dictation in about a
+second. A 7–14B model writes noticeably better meeting summaries. No model yet? `brew install ollama`,
+`ollama serve`, then `ollama pull qwen3:8b`.
+
 ## Settings
 
 The settings file is `~/.config/murmur/config.json` (menu → **Open Settings File**). It's created
@@ -121,7 +182,9 @@ back to its default. `MURMUR_HOME` moves the whole directory.
     "whisperCpp": {
       "binary": "",          // empty: finds whisper-cli in Homebrew's paths
       "model": "models/ggml-small.en.bin",   // relative to ~/.config/murmur
-      "threads": 0
+      "threads": 0,
+      "keepModelLoaded": true,  // background whisper-server: much faster, uses memory
+      "serverPort": 47813
     },
     "groqModel": "whisper-large-v3-turbo",
     "openaiModel": "whisper-1",
@@ -130,8 +193,8 @@ back to its default. `MURMUR_HOME` moves the whole directory.
 
   "cleanup": {
     "enabled": true,
-    "provider": "auto",      // "auto" | "groq" | "openai" | "anthropic" | "custom"
-    "model": "",             // empty: llama-3.3-70b-versatile / gpt-4.1-mini / claude-haiku-4-5
+    "provider": "auto",      // "auto" | "local" | "groq" | "openai" | "anthropic" | "custom"
+    "model": "",             // empty: picked for you (see Local models) or the provider's default
     "baseURL": "",           // for "custom", e.g. "http://localhost:11434/v1" (Ollama)
     "timeoutSeconds": 10,
     "extraInstructions": ""  // e.g. "Use British spelling."
@@ -145,7 +208,18 @@ back to its default. `MURMUR_HOME` moves the whole directory.
 
   "handsFree": { "maxMinutes": 5, "onTimeLimit": "transcribe" },  // or "discard"
   "timing": { "tapMaxMs": 250, "doubleTapWindowMs": 350, "chordGuardMs": 400 },
-  "feedback": { "sounds": true, "pill": true }
+  "feedback": { "sounds": true, "pill": true },
+
+  "meeting": {
+    "folder": "~/Documents/Murmur Meetings",
+    "captureSystemAudio": true, // false: your microphone only
+    "chunkSeconds": 30,
+    "maxHours": 4,
+    "summarize": true,
+    "summaryProvider": "auto",  // same choices as cleanup.provider
+    "summaryModel": "",
+    "summaryTimeoutSeconds": 600
+  }
 }
 ```
 
@@ -153,10 +227,9 @@ back to its default. `MURMUR_HOME` moves the whole directory.
 otherwise local whisper.cpp. Set `"local"` to keep audio on your Mac even when you have keys
 (for example, to use a key only for cleanup).
 
-**`cleanup.provider: "auto"`** picks the first of Groq, OpenAI, Anthropic that has a key. With no
-key, cleanup is skipped and the raw transcript is inserted. To clean up offline, run
-[Ollama](https://ollama.com) and set `"provider": "custom"`, `"baseURL": "http://localhost:11434/v1"`,
-`"model": "llama3.2"`.
+**`cleanup.provider: "auto"`** picks the first of Groq, OpenAI, Anthropic that has a key, then a local
+Ollama or LM Studio. With none of those, cleanup is skipped and the raw transcript is inserted.
+`"custom"` is for any other OpenAI-compatible server: set `"baseURL"` and `"model"`.
 
 **Models.** `small.en` is quick on Apple Silicon and good for English. `medium.en` is more accurate
 and roughly 2–3× slower. For other languages use `small` or `medium` and set `"language"`.
@@ -165,7 +238,8 @@ and roughly 2–3× slower. For other languages use `small` or `medium` and set 
 
 ```jsonc
 "transcription": { "engine": "local" },
-"cleanup": { "enabled": false }   // or "provider": "custom" with a local Ollama
+"cleanup": { "provider": "local" },          // Ollama or LM Studio; or "enabled": false
+"meeting": { "summaryProvider": "local" }
 ```
 
 ## How it works
@@ -173,7 +247,7 @@ and roughly 2–3× slower. For other languages use `small` or `medium` and set 
 ```
 hotkey (CGEventTap) ─► state machine ─► AVAudioEngine @16 kHz ─► WAV
                                                           │
-                     whisper-cli (local)  or  Groq/OpenAI /audio/transcriptions
+         whisper-server (local, model kept loaded)  or  Groq/OpenAI /audio/transcriptions
                                                           │
                             LLM cleanup (falls back to the raw text on failure)
                                                           │
@@ -184,7 +258,11 @@ hotkey (CGEventTap) ─► state machine ─► AVAudioEngine @16 kHz ─► WAV
   hold / double-tap / hands-free / Esc state machine, WAV encoding, the Whisper and LLM clients,
   and the pipeline. Builds and tests on Linux as well.
 - `Sources/Murmur`: the macOS app: event tap, microphone, text insertion, pill, menu bar,
-  permissions, launch at login.
+  permissions, launch at login, and Meeting Notes (ScreenCaptureKit for the call's audio).
+
+Meeting Notes runs the mic and the call's audio side by side: each is cut into ~30 s pieces at
+pauses, transcribed with timestamps, merged into one transcript, then summarized. Long meetings are
+summarized part by part first, so they fit a local model's context window.
 
 ## Development
 
@@ -206,6 +284,12 @@ Logs go to the unified log: `log stream --predicate 'process == "Murmur"'`.
 - **"whisper-cli not found".** `brew install whisper-cpp`, or set `transcription.whisperCpp.binary`.
 - **"Whisper model not found".** `scripts/download-model.sh small.en`.
 - **Nothing is inserted into a password field.** macOS blocks synthetic input into secure fields, by design.
+- **Meeting notes only have "Me".** Grant Screen & System Audio Recording, then quit and reopen Murmur.
+  The notes file says so at the top when call audio wasn't recorded.
+- **"No summary: no language model was found".** Start Ollama (`ollama serve`) or LM Studio's server,
+  or add an API key. The menu's "Meeting summaries" line shows what will be used.
+- **whisper-server problems.** Its log is `~/.config/murmur/whisper-server.log`. Set
+  `whisperCpp.keepModelLoaded` to `false` to fall back to `whisper-cli`.
 
 ## License
 

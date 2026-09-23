@@ -7,6 +7,30 @@ public protocol Transcriber: Sendable {
     /// Human-readable name for the menu, e.g. "whisper.cpp (ggml-small.en)".
     var name: String { get }
     func transcribe(wav: Data, language: String?, prompt: String?) async throws -> String
+    /// The same, split into timed segments (seconds from the start of the clip). Meeting notes use
+    /// these to interleave speakers sentence by sentence.
+    func transcribeSegments(wav: Data, language: String?, prompt: String?) async throws -> [TimedText]
+}
+
+public struct TimedText: Sendable, Equatable {
+    public var start: TimeInterval
+    public var end: TimeInterval
+    public var text: String
+
+    public init(start: TimeInterval, end: TimeInterval, text: String) {
+        self.start = start
+        self.end = end
+        self.text = text
+    }
+}
+
+extension Transcriber {
+    /// Engines without timestamps return the whole clip as one segment.
+    public func transcribeSegments(wav: Data, language: String?, prompt: String?) async throws -> [TimedText] {
+        let text = try await transcribe(wav: wav, language: language, prompt: prompt)
+        let seconds = Double(max(0, wav.count - 44)) / Double(Audio.sampleRate * 2)
+        return [TimedText(start: 0, end: seconds, text: text)]
+    }
 }
 
 public enum TranscriptionError: Error, CustomStringConvertible, Equatable {
@@ -111,6 +135,22 @@ public struct WhisperCppTranscriber: Transcriber {
         "/opt/homebrew/bin/whisper-cpp",
         "/usr/local/bin/whisper-cpp",
     ]
+
+    /// `whisper-server` next to the configured `whisper-cli`, or in the usual places and PATH.
+    public static func locateServer(configuredCli: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+        let fm = FileManager.default
+        if !configuredCli.isEmpty {
+            let sibling = (AppPaths.expandTilde(configuredCli) as NSString).deletingLastPathComponent + "/whisper-server"
+            return fm.isExecutableFile(atPath: sibling) ? sibling : nil
+        }
+        var candidates = searchPaths
+            .filter { $0.hasSuffix("/whisper-cli") }
+            .map { AppPaths.expandTilde(String($0.dropLast("whisper-cli".count)) + "whisper-server") }
+        for dir in (environment["PATH"] ?? "").split(separator: ":") {
+            candidates.append("\(dir)/whisper-server")
+        }
+        return candidates.first { fm.isExecutableFile(atPath: $0) }
+    }
 
     /// Resolves the configured binary, or searches the usual places and PATH.
     public static func locateBinary(configured: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
