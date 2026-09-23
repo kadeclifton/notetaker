@@ -153,9 +153,7 @@ final class DictationController {
     }
 
     private static func ollamaModel(of cleaner: TextCleaner?) -> String? {
-        guard let chat = (cleaner as? LLMCleaner)?.chat as? OpenAICompatibleChat,
-              chat.service == LocalLLM.ollama.name else { return nil }
-        return chat.model
+        ((cleaner as? LLMCleaner)?.chat as? OllamaChat)?.model
     }
 
     /// Loads the cleanup model (if needed) and restarts its keep-loaded timer.

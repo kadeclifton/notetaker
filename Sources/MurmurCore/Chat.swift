@@ -31,7 +31,8 @@ public struct OpenAICompatibleChat: ChatModel {
 
     public func complete(system: String, user: String, maxTokens: Int, timeout: TimeInterval) async throws -> String {
         // Qwen 3 thinks out loud by default, which makes a two-second cleanup take twenty.
-        // "/no_think" is its documented switch to answer directly.
+        // "/no_think" is its soft switch; LM Studio's Qwen 3 templates honour it. (Ollama goes
+        // through OllamaChat instead, which has a real switch.)
         let lower = model.lowercased()
         let userContent = lower.contains("qwen3") && !lower.contains("coder") ? user + "\n/no_think" : user
         let body: [String: Any] = [
@@ -123,5 +124,59 @@ enum ChatText {
         let open = text.range(of: "<think>")
         if let open, open.lowerBound > close.lowerBound { return text }
         return String(text[close.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// Ollama's native `/api/chat`. Unlike its OpenAI-compatible endpoint it has a real switch for
+/// thinking (`think: false`); the "/no_think" text trick is ignored by current Qwen 3 builds,
+/// which then reason for a minute before a one-line answer.
+public struct OllamaChat: ChatModel {
+    public var model: String
+    public var root: URL
+    public var client: HTTPClient
+
+    public init(model: String, root: URL = LocalLLM.ollama.root, client: HTTPClient = URLSessionHTTPClient()) {
+        self.model = model
+        self.root = root
+        self.client = client
+    }
+
+    public var name: String { "Ollama \(model)" }
+
+    public func complete(system: String, user: String, maxTokens: Int, timeout: TimeInterval) async throws -> String {
+        do {
+            return try await send(system: system, user: user, maxTokens: maxTokens, timeout: timeout, think: false)
+        } catch let error as APIError where error.status == 400 && error.message.lowercased().contains("think") {
+            // An older Ollama that does not know the switch.
+            return try await send(system: system, user: user, maxTokens: maxTokens, timeout: timeout, think: nil)
+        }
+    }
+
+    private func send(system: String, user: String, maxTokens: Int, timeout: TimeInterval, think: Bool?) async throws -> String {
+        var body: [String: Any] = [
+            "model": model,
+            "stream": false,
+            "messages": [
+                ["role": "system", "content": system],
+                ["role": "user", "content": user],
+            ],
+            "options": ["temperature": 0, "num_predict": maxTokens],
+        ]
+        if let think { body["think"] = think }
+        var request = URLRequest(url: root.appendingPathComponent("api/chat"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let data = try await HTTP.send(request, client: client, service: "Ollama")
+        struct Response: Decodable {
+            struct Message: Decodable { let content: String? }
+            let message: Message
+        }
+        guard let response = try? JSONDecoder().decode(Response.self, from: data) else {
+            throw TranscriptionError.badResponse(String(decoding: data.prefix(200), as: UTF8.self))
+        }
+        return ChatText.stripThinking(response.message.content ?? "")
     }
 }

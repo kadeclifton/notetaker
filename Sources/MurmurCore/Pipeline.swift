@@ -125,6 +125,9 @@ extension Config {
             // Asked for local explicitly: take the best there is, even if it is big or a code model.
             guard let local, let picked = local.pickModel(preferred: model, for: purpose)
                     ?? local.pickModel(preferred: model, for: .summary) else { throw SetupError.noLocalLLM }
+            if local.isOllama {
+                return OllamaChat(model: picked, client: client)
+            }
             return OpenAICompatibleChat(service: local.server, baseURL: local.baseURL, apiKey: nil, model: picked, client: client)
         case .custom:
             let base = baseURL.isEmpty ? "http://localhost:11434/v1" : baseURL

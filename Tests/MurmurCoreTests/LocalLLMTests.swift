@@ -149,3 +149,41 @@ final class KeepAliveTests: XCTestCase {
         XCTAssertTrue(KeepAlive.allCases.allSatisfy { !$0.title.isEmpty })
     }
 }
+
+final class OllamaChatTests: XCTestCase {
+    func testSwitchesThinkingOffWithTheRealFlag() async throws {
+        let client = FakeHTTPClient { _ in (200, #"{"model":"qwen3:4b","message":{"role":"assistant","content":"So I was thinking we could meet tomorrow at 3."},"done":true}"#) }
+        let chat = OllamaChat(model: "qwen3:4b", client: client)
+        let reply = try await chat.complete(system: "clean", user: "so um", maxTokens: 64, timeout: 5)
+        XCTAssertEqual(reply, "So I was thinking we could meet tomorrow at 3.")
+        let request = try XCTUnwrap(client.requests.first)
+        XCTAssertEqual(request.url?.absoluteString, "http://127.0.0.1:11434/api/chat")
+        let body = jsonBody(request)
+        XCTAssertEqual(body["think"] as? Bool, false)
+        XCTAssertEqual(body["stream"] as? Bool, false)
+        XCTAssertEqual((body["options"] as? [String: Any])?["num_predict"] as? Int, 64)
+        let messages = try XCTUnwrap(body["messages"] as? [[String: String]])
+        XCTAssertEqual(messages.map { $0["content"] }, ["clean", "so um"], "no /no_think text added")
+    }
+
+    func testOlderOllamaWithoutTheFlag() async throws {
+        let calls = Counter()
+        let client = FakeHTTPClient { _ in
+            if calls.next() == 1 { return (400, #"{"error":"invalid option: think"}"#) }
+            return (200, #"{"message":{"content":"<think>x</think>Hi."}}"#)
+        }
+        let reply = try await OllamaChat(model: "qwen3:4b", client: client).complete(system: "s", user: "u", maxTokens: 8, timeout: 5)
+        XCTAssertEqual(reply, "Hi.")
+        XCTAssertEqual(client.requests.count, 2)
+        XCTAssertNil(jsonBody(client.requests[1])["think"])
+    }
+
+    func testLocalOllamaUsesTheNativeAPI() throws {
+        let local = LocalLLM(server: "Ollama", baseURL: URL(string: "http://127.0.0.1:11434/v1")!, models: ["qwen3:4b"])
+        let cleaner = try XCTUnwrap(try Config().makeCleaner(env: [:], local: local) as? LLMCleaner)
+        XCTAssertTrue(cleaner.chat is OllamaChat)
+        let lmStudio = LocalLLM(server: "LM Studio", baseURL: URL(string: "http://127.0.0.1:1234/v1")!, models: ["qwen2.5-7b-instruct"])
+        let other = try XCTUnwrap(try Config().makeCleaner(env: [:], local: lmStudio) as? LLMCleaner)
+        XCTAssertTrue(other.chat is OpenAICompatibleChat)
+    }
+}
