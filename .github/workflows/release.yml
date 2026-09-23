@@ -40,7 +40,14 @@ jobs:
         run: |
           KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
           KEYCHAIN_PASSWORD="$(uuidgen)"
-          echo "$P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          # Tolerate the line breaks and spaces a copy and paste can add.
+          P12_CLEAN="$(printf '%s' "$P12" | tr -d ' \r\n\t')"
+          if ! printf '%s' "$P12_CLEAN" | base64 --decode > "$RUNNER_TEMP/developer-id.p12" 2>/dev/null \
+              || [ "$(od -An -tx1 -N1 "$RUNNER_TEMP/developer-id.p12" | tr -d " ")" != "30" ]; then
+            # A .p12 is DER, so its base64 always starts with "MI". Say what arrived, not what it is.
+            echo "::error::DEVELOPER_ID_P12 is not a base64-encoded .p12 (${#P12_CLEAN} characters, starts with \"MI\": $([ "${P12_CLEAN:0:2}" = MI ] && echo yes || echo no)). On your Mac run: base64 -i /path/to/cert.p12 | pbcopy, then paste the result as the secret."
+            exit 1
+          fi
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security set-keychain-settings -lut 3600 "$KEYCHAIN"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
