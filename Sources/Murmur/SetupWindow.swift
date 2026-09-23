@@ -46,6 +46,7 @@ final class SetupWindowController {
         }
         model.usesLocalWhisper = controller.usesLocalWhisper
         model.whisperInstalled = controller.whisperInstalled
+        model.homebrewInstalled = Homebrew.isInstalled
         model.modelInstalled = controller.whisperModelInstalled
         model.currentModel = controller.currentWhisperModel
         model.microphone = Permissions.microphone == .authorized
@@ -62,6 +63,7 @@ final class SetupWindowController {
 final class SetupModel: ObservableObject {
     @Published var usesLocalWhisper = true
     @Published var whisperInstalled = false
+    @Published var homebrewInstalled = true
     @Published var modelInstalled = false
     @Published var currentModel: WhisperModelOption?
     @Published var microphone = false
@@ -81,9 +83,19 @@ final class SetupModel: ObservableObject {
 struct SetupActions {
     let controller: DictationController
 
-    func copyBrewCommand() {
+    /// Without Homebrew: install it, make `brew` work in new Terminal windows, then install whisper.cpp,
+    /// all in one paste. With Homebrew: just whisper.cpp.
+    func copyInstallCommand(homebrewInstalled: Bool) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("brew install whisper-cpp", forType: .string)
+        NSPasteboard.general.setString(homebrewInstalled ? Homebrew.whisperCommand : Homebrew.everythingCommand, forType: .string)
+    }
+
+    func openTerminal() {
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
+    }
+
+    func openHomebrewSite() {
+        NSWorkspace.shared.open(URL(string: "https://brew.sh")!)
     }
 
     func recheck() { controller.reloadConfig() }
@@ -129,10 +141,24 @@ struct SetupView: View {
             }
 
             if model.usesLocalWhisper {
-                step(done: model.whisperInstalled, title: "Install whisper.cpp",
-                     detail: "The speech recognizer. In Terminal, run  brew install whisper-cpp") {
-                    Button("Copy Command") { actions.copyBrewCommand() }
-                    Button("Check Again") { actions.recheck() }
+                if !model.whisperInstalled && !model.homebrewInstalled {
+                    step(done: false, title: "Install Homebrew and whisper.cpp",
+                         detail: "whisper.cpp, the speech recognizer, comes from Homebrew, which this Mac doesn't have yet. "
+                            + "Copy the command, open Terminal, paste it and press Return. It asks for your Mac password "
+                            + "(nothing shows as you type) and may install Apple's developer tools first; allow 10 to 15 minutes.") {
+                        Button("Copy Command") { actions.copyInstallCommand(homebrewInstalled: false) }
+                        Button("Open Terminal") { actions.openTerminal() }
+                        Button("About Homebrew") { actions.openHomebrewSite() }
+                        Button("Check Again") { actions.recheck() }
+                    }
+                } else {
+                    step(done: model.whisperInstalled, title: "Install whisper.cpp",
+                         detail: "The speech recognizer. Copy the command, open Terminal, paste it and press Return:  "
+                            + Homebrew.whisperCommand) {
+                        Button("Copy Command") { actions.copyInstallCommand(homebrewInstalled: true) }
+                        Button("Open Terminal") { actions.openTerminal() }
+                        Button("Check Again") { actions.recheck() }
+                    }
                 }
                 modelStep
             }
@@ -238,5 +264,21 @@ struct SetupView: View {
             }
         }
     }
+}
+/// Homebrew, which provides whisper.cpp.
+enum Homebrew {
+    /// Apple Silicon installs to /opt/homebrew; older setups used /usr/local.
+    static var isInstalled: Bool {
+        ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].contains { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    static let whisperCommand = "brew install whisper-cpp"
+
+    /// Homebrew's official installer, then `brew` on the PATH for this and future Terminal windows,
+    /// then whisper.cpp. Each step runs only if the one before it worked.
+    static let everythingCommand =
+        #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && "#
+        + #"(grep -q 'brew shellenv' ~/.zprofile 2>/dev/null || echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile) && "#
+        + #"eval "$(/opt/homebrew/bin/brew shellenv)" && brew install whisper-cpp"#
 }
 #endif
