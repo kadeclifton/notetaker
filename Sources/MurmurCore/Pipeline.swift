@@ -105,14 +105,14 @@ extension Config {
     /// Resolves a provider setting to a chat model. `local` is what `LocalLLM.detect` found, if anything.
     /// Returns nil only for `auto` with nothing available.
     public func makeChatModel(provider: CleanupProvider, model: String, baseURL: String = "",
-                              env: [String: String], local: LocalLLM?,
+                              env: [String: String], local: LocalLLM?, purpose: LocalLLM.Purpose = .cleanup,
                               client: HTTPClient = URLSessionHTTPClient()) throws -> ChatModel? {
         var provider = provider
         if provider == .auto {
             let hosted: [CleanupProvider] = [.groq, .openai, .anthropic]
             if let found = hosted.first(where: { $0.hostedAPI?.key(in: env) != nil }) {
                 provider = found
-            } else if local?.pickModel(preferred: model) != nil {
+            } else if local?.pickModel(preferred: model, for: purpose) != nil {
                 provider = .local
             } else {
                 return nil
@@ -122,7 +122,9 @@ extension Config {
 
         switch provider {
         case .local:
-            guard let local, let picked = local.pickModel(preferred: model) else { throw SetupError.noLocalLLM }
+            // Asked for local explicitly: take the best there is, even if it is big or a code model.
+            guard let local, let picked = local.pickModel(preferred: model, for: purpose)
+                    ?? local.pickModel(preferred: model, for: .summary) else { throw SetupError.noLocalLLM }
             return OpenAICompatibleChat(service: local.server, baseURL: local.baseURL, apiKey: nil, model: picked, client: client)
         case .custom:
             let base = baseURL.isEmpty ? "http://localhost:11434/v1" : baseURL
@@ -149,6 +151,9 @@ public struct PipelineResult: Sendable, Equatable {
     public var text: String
     /// Set when cleanup was attempted but its output was not used.
     public var cleanupProblem: String?
+    /// How long each step took, for the menu's "Last dictation" line.
+    public var transcribeSeconds: TimeInterval = 0
+    public var cleanupSeconds: TimeInterval?
 }
 
 /// Audio in, text out: transcribe, then clean up. Cancelling the task stops whichever step is running.
@@ -179,29 +184,36 @@ public struct DictationPipeline: Sendable {
 
     public func run(samples: [Float], context: CleanupContext) async throws -> PipelineResult {
         let wav = Audio.wav(samples: samples)
+        let transcribeStart = Date()
         let heard = try await transcriber.transcribe(wav: wav, language: language, prompt: prompt)
+        let transcribeSeconds = Date().timeIntervalSince(transcribeStart)
         try Task.checkCancellation()
         let transcript = TranscriptFilter.clean(heard)
         guard !transcript.isEmpty else {
-            return PipelineResult(transcript: "", text: "", cleanupProblem: nil)
+            return PipelineResult(transcript: "", text: "", cleanupProblem: nil, transcribeSeconds: transcribeSeconds)
         }
         guard let cleaner else {
-            return PipelineResult(transcript: transcript, text: transcript, cleanupProblem: nil)
+            return PipelineResult(transcript: transcript, text: transcript, cleanupProblem: nil, transcribeSeconds: transcribeSeconds)
         }
+        let cleanupStart = Date()
+        var result: PipelineResult
         do {
             let output = try await cleaner.clean(transcript, context: context)
             try Task.checkCancellation()
             switch CleanupGuard.check(raw: transcript, cleaned: CleanupPrompt.unwrap(output, raw: transcript)) {
             case let .accept(text):
-                return PipelineResult(transcript: transcript, text: text, cleanupProblem: nil)
+                result = PipelineResult(transcript: transcript, text: text, cleanupProblem: nil)
             case let .reject(reason):
-                return PipelineResult(transcript: transcript, text: transcript, cleanupProblem: "Cleanup ignored: \(reason)")
+                result = PipelineResult(transcript: transcript, text: transcript, cleanupProblem: "Cleanup ignored: \(reason)")
             }
         } catch {
             // Esc while the LLM is running cancels everything; any other failure (offline,
             // timeout, bad key) still inserts the raw transcript rather than losing it.
             if Task.isCancelled || error is CancellationError { throw CancellationError() }
-            return PipelineResult(transcript: transcript, text: transcript, cleanupProblem: "Cleanup failed: \(error)")
+            result = PipelineResult(transcript: transcript, text: transcript, cleanupProblem: "Cleanup failed: \(error)")
         }
+        result.transcribeSeconds = transcribeSeconds
+        result.cleanupSeconds = Date().timeIntervalSince(cleanupStart)
+        return result
     }
 }

@@ -32,7 +32,8 @@ public struct OpenAICompatibleChat: ChatModel {
     public func complete(system: String, user: String, maxTokens: Int, timeout: TimeInterval) async throws -> String {
         // Qwen 3 thinks out loud by default, which makes a two-second cleanup take twenty.
         // "/no_think" is its documented switch to answer directly.
-        let userContent = model.lowercased().contains("qwen3") ? user + "\n/no_think" : user
+        let lower = model.lowercased()
+        let userContent = lower.contains("qwen3") && !lower.contains("coder") ? user + "\n/no_think" : user
         let body: [String: Any] = [
             "model": model,
             "temperature": 0,

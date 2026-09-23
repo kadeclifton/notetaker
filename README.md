@@ -156,8 +156,13 @@ you're taking notes.
 
 Murmur looks for [Ollama](https://ollama.com) (port 11434) and [LM Studio](https://lmstudio.ai)'s
 local server (port 1234) on launch and whenever you open the menu. The menu shows what it found,
-e.g. `Local models (Ollama): llama3.2:3b, qwen3:8b`. It picks a chat model in this order: Qwen 3,
-Qwen 2.5, Llama 3.2, Llama 3.1, Gemma, Mistral, Phi. It skips embedding models.
+e.g. `Local models (Ollama): llama3.2:3b, qwen3:8b`.
+
+Cleanup runs on every dictation, so it only picks a **small general model** (about 8B parameters or
+less, not a code model), smallest first: Qwen 3, Qwen 2.5, Llama 3.2, Llama 3.1, Gemma, Mistral, Phi.
+If you only have big or code models (say `qwen3-coder:30b`), cleanup stays off and dictation stays
+fast. Meeting summaries run once per meeting, so they use the most capable model you have, big ones
+included. The menu's "Last dictation" line shows how long transcription and cleanup took.
 
 Not sure what you have installed? In Terminal:
 
@@ -173,9 +178,9 @@ specific one, e.g. `"qwen3:8b"`.
 
 For LM Studio, start its server: Developer tab → **Start Server**, with a model loaded.
 
-Rough guide on Apple Silicon: a 3–4B model (`llama3.2:3b`, `qwen3:4b`) cleans up dictation in about a
-second. A 7–14B model writes noticeably better meeting summaries. No model yet? `brew install ollama`,
-`ollama serve`, then `ollama pull qwen3:8b`.
+Rough guide on Apple Silicon: a 3–4B model (`ollama pull qwen3:4b` or `llama3.2:3b`) cleans up
+dictation in about a second. A 14B+ model writes noticeably better meeting summaries. No Ollama yet?
+`brew install ollama`, `ollama serve`, then pull a model.
 
 ## Settings
 

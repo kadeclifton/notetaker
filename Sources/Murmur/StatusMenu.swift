@@ -68,6 +68,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(info("Meeting summaries: \(controller.summaryName)"))
         menu.addItem(item("Open Meeting Notes Folder", action: #selector(openMeetings)))
         for problem in controller.problems { menu.addItem(info("⚠️ " + problem)) }
+        if let timing = controller.lastTiming { menu.addItem(info("Last dictation: " + timing)) }
         if let failure = controller.lastFailure { menu.addItem(info("Last issue: " + failure)) }
 
         let missing = permissionItems()

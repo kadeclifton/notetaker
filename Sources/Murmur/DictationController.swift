@@ -30,6 +30,8 @@ final class DictationController {
     private var setupProblems: [String] = []
     private var pipelineProblem: String?
     private(set) var lastFailure: String?
+    /// "0.4 s transcribe + 0.9 s cleanup (Ollama llama3.2:3b)", for the menu.
+    private(set) var lastTiming: String?
     private(set) var transcriberName = "–"
     private(set) var cleanerName = "off"
     private(set) var summaryName = "off"
@@ -118,7 +120,8 @@ final class DictationController {
         do {
             let pipeline = try DictationPipeline(config: config, env: env, local: localLLM)
             transcriberName = pipeline.transcriber.name
-            cleanerName = pipeline.cleaner?.name ?? (config.cleanup.enabled ? "off (no API key or local model)" : "off")
+            cleanerName = pipeline.cleaner?.name
+                ?? (config.cleanup.enabled ? "off (no API key or small local model)" : "off")
         } catch {
             transcriberName = "not ready"
             cleanerName = "–"
@@ -127,7 +130,7 @@ final class DictationController {
         let m = config.meeting
         let summary = m.summarize
             ? try? config.makeChatModel(provider: m.summaryProvider, model: m.summaryModel, baseURL: config.cleanup.baseURL,
-                                        env: env, local: localLLM)
+                                        env: env, local: localLLM, purpose: .summary)
             : nil
         summaryName = summary?.name ?? (m.summarize ? "off (no API key or local model)" : "off")
     }
@@ -154,7 +157,8 @@ final class DictationController {
                     prompt: vocabulary.isEmpty ? nil : vocabulary.joined(separator: ", ") + ".",
                     summarizer: m.summarize
                         ? try? self.config.makeChatModel(provider: m.summaryProvider, model: m.summaryModel,
-                                                         baseURL: self.config.cleanup.baseURL, env: self.env, local: self.localLLM)
+                                                         baseURL: self.config.cleanup.baseURL, env: self.env, local: self.localLLM,
+                                                         purpose: .summary)
                         : nil)
                 let recorder = try await MeetingRecorder.start(setup)
                 recorder.onChange = { [weak self] in self?.onChange?() }
@@ -360,6 +364,7 @@ final class DictationController {
                 try Task.checkCancellation()
                 guard let self else { return }
                 if let problem = result.cleanupProblem { self.lastFailure = problem }
+                self.lastTiming = Self.describeTiming(result, cleaner: pipeline.cleaner?.name)
                 if result.text.isEmpty {
                     self.finishJob(id, message: "No speech heard")
                     return
@@ -435,6 +440,15 @@ final class DictationController {
         play("Basso")
         flash(Self.shortError(message), isError: true)
         onChange?()
+    }
+
+    private static func describeTiming(_ result: PipelineResult, cleaner: String?) -> String {
+        var text = String(format: "%.1f s transcribe", result.transcribeSeconds)
+        if let cleanup = result.cleanupSeconds {
+            text += String(format: " + %.1f s cleanup", cleanup)
+            if let cleaner { text += " (\(cleaner))" }
+        }
+        return text
     }
 
     private static func shortError(_ message: String) -> String {
