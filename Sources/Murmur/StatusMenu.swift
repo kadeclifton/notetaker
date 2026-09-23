@@ -53,6 +53,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controller.detectLocalLLM()
 
         menu.addItem(statusLine())
+        if let update = updateItem() { menu.addItem(update) }
         let dictation = item("Dictation", action: #selector(toggleEnabled), key: "e")
         dictation.state = controller.enabled ? .on : .off
         menu.addItem(dictation)
@@ -83,6 +84,18 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
         if !controller.enabled { return info("Dictation is off") }
         return info("Ready · " + controller.modesDescription)
+    }
+
+    /// "Update to v0.1.4…" when a newer release is out; progress while it installs.
+    private func updateItem() -> NSMenuItem? {
+        switch controller.updater.state {
+        case let .available(release):
+            return item("⬆︎ Update to \(release.tag)…", action: #selector(installUpdate))
+        case let .installing(step):
+            return info("⬆︎ " + step)
+        case .idle, .checking, .upToDate, .failed:
+            return nil
+        }
     }
 
     private func addMeetingItems(to menu: NSMenu) {
@@ -192,6 +205,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(item("Open Settings File", action: #selector(openSettings), key: ","))
         menu.addItem(item("Open API Keys (.env)", action: #selector(openEnv)))
         menu.addItem(item("Reload Settings", action: #selector(reload), key: "r"))
+        menu.addItem(item("Check for Updates…", action: #selector(checkForUpdates)))
+        menu.addItem(info(updateStatus()))
         menu.addItem(.separator())
         menu.addItem(info("Transcription: \(controller.transcriberName)"))
         for problem in controller.problems { menu.addItem(info("⚠️ " + problem)) }
@@ -293,6 +308,48 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         guard let model = sender.representedObject as? String else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString("ollama pull \(model)", forType: .string)
+    }
+
+    private func updateStatus() -> String {
+        let version = "Murmur \(controller.updater.currentVersion)"
+        switch controller.updater.state {
+        case .checking: return version + " · checking for updates…"
+        case .upToDate: return version + " · up to date"
+        case let .available(release): return version + " · \(release.tag) available"
+        case let .installing(step): return version + " · " + step
+        case let .failed(message): return "⚠️ " + message
+        case .idle: return version
+        }
+    }
+
+    @objc private func checkForUpdates() {
+        Task { @MainActor [self] in
+            await controller.updater.check(userInitiated: true)
+            switch controller.updater.state {
+            case .available: installUpdate()
+            case .upToDate: showAlert("You have the latest version, Murmur \(controller.updater.currentVersion).")
+            case let .failed(message): showAlert(message)
+            case .idle, .checking, .installing: break
+            }
+        }
+    }
+
+    @objc private func installUpdate() {
+        guard let release = controller.updater.available else { return }
+        let alert = NSAlert()
+        alert.messageText = "Update to Murmur \(release.tag)?"
+        var text = "You have \(controller.updater.currentVersion). Murmur downloads the update, checks it is signed by the same developer, and restarts. Settings, models, the Compose Library and permissions stay as they are."
+        if controller.meeting != nil { text += "\n\nThe meeting being recorded is saved first (without its summary)." }
+        alert.informativeText = text
+        alert.addButton(withTitle: "Update and Restart")
+        alert.addButton(withTitle: "Release Notes")
+        alert.addButton(withTitle: "Later")
+        NSApp.activate(ignoringOtherApps: true)
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: controller.updater.install(release)
+        case .alertSecondButtonReturn: controller.updater.openReleasePage()
+        default: break
+        }
     }
 
     @objc private func showLibrary() {

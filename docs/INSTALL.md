@@ -60,8 +60,10 @@ smaller Compose Model if writing feels slow.
 
 ## Updating
 
-Quit Murmur from the menu bar, download the new zip, and replace Murmur in Applications. Your
-settings, models and permissions carry over.
+When a new version is out, the menu bar menu shows **⬆︎ Update to v…**. Click it, then **Update and
+Restart**: Murmur downloads it, checks it comes from the same developer, and restarts. Settings,
+models, the Compose Library and permissions carry over. **Settings → Check for Updates…** looks
+right away. (You can also download the new zip yourself and replace Murmur in Applications.)
 
 If Murmur stops reacting to fn after an update, macOS is holding on to the old permission: open
 the menu → **Settings → Setup…**, click **Reset Murmur's Permissions and Ask Again**, and allow them.

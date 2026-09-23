@@ -44,6 +44,7 @@ public struct Config: Codable, Equatable, Sendable {
     public var feedback = FeedbackConfig()
     public var meeting = MeetingConfig()
     public var compose = ComposeConfig()
+    public var updates = UpdatesConfig()
 
     public init() {}
 }
@@ -159,6 +160,16 @@ public struct ComposeConfig: Codable, Equatable, Sendable {
     public var folder: String = "~/Documents/Murmur Library"
     /// Added to the compose prompt, e.g. "I write in British English."
     public var extraInstructions: String = ""
+
+    public init() {}
+}
+
+public struct UpdatesConfig: Codable, Equatable, Sendable {
+    /// Look for a newer release on GitHub at launch and every few hours. Only the release list is
+    /// fetched; nothing about you or your Mac is sent.
+    public var checkAutomatically: Bool = true
+    /// The GitHub repository releases come from, "owner/name".
+    public var repository: String = "kadeclifton/notetaker"
 
     public init() {}
 }
@@ -309,6 +320,13 @@ extension Config {
       "feedback": {
         "sounds": true,
         "pill": true
+      },
+
+      // Updates: Murmur checks GitHub for a newer release and offers it in the menu. Installing
+      // only goes ahead if the download is signed by the same developer as this copy.
+      "updates": {
+        "checkAutomatically": true,
+        "repository": "kadeclifton/notetaker"
       },
 
       // Meeting Notes (menu bar → Start Meeting Notes): records your mic and the call's audio,

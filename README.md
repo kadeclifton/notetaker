@@ -128,7 +128,9 @@ Click the wave in the menu bar:
 - **Cleanup & Compose**: whether plain fn cleans up too, which models clean up and compose, how long
   Ollama keeps the cleanup model loaded, and **Compose Model** (Automatic picks the best one that fits
   your Mac; pick another on slower hardware).
-- **Settings**: setup window, launch at login, the meeting notes and library folders, the settings and API key files.
+- **Settings**: setup window, launch at login, the meeting notes and library folders, the settings and API key files,
+  and **Check for Updates…**.
+- **⬆︎ Update to v…** appears at the top when a newer release is published.
 
 ## Using it
 
@@ -393,6 +395,13 @@ need the `xattr` step in INSTALL.md. `scripts/build-app.sh` also uses a Develope
 one is in your keychain, so local builds match releases.
 
 For people to download it, the repository has to be public, or they need to be added as collaborators.
+
+**Updates.** Murmur asks GitHub for the latest release shortly after launch and every six hours
+(`updates.checkAutomatically`; only the public release list is fetched). When there is a newer
+one, the menu offers **Update to v…**: it downloads the zip, installs only if the new app is signed
+with the same Developer ID Team as the running one, intact (`codesign --verify`) and notarized
+(`spctl`), swaps it in place and relaunches. Copies not signed with a Developer ID (local ad-hoc or
+"Murmur Dev" builds) get a link to the release page instead.
 
 **Which speech model on which Mac.** The menu's **Speech Model** switches between the three the setup
 window offers, and **Last dictation** shows the time each one takes on your Mac:
