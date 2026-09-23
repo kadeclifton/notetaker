@@ -34,6 +34,8 @@ public enum InsertionMethod: String, Codable, Sendable, CaseIterable {
 public struct Config: Codable, Equatable, Sendable {
     /// Key to hold for push-to-talk; double-tap it for hands-free. See `HotkeySpec`.
     public var hotkey: String = "fn"
+    /// What the hotkey does alone, with ⌃, and with ⌃⌥.
+    public var modes = ModesConfig()
     public var transcription = TranscriptionConfig()
     public var cleanup = CleanupConfig()
     public var insertion = InsertionConfig()
@@ -41,6 +43,7 @@ public struct Config: Codable, Equatable, Sendable {
     public var timing = TimingConfig()
     public var feedback = FeedbackConfig()
     public var meeting = MeetingConfig()
+    public var compose = ComposeConfig()
 
     public init() {}
 }
@@ -140,6 +143,26 @@ public struct MeetingConfig: Codable, Equatable, Sendable {
     public init() {}
 }
 
+public struct ComposeConfig: Codable, Equatable, Sendable {
+    /// Which LLM writes. Same choices as cleanup.provider. Compose runs only when you ask for it,
+    /// so it gets the most capable model that fits this Mac, not the quick cleanup one.
+    public var provider: CleanupProvider = .auto
+    /// Empty: pick automatically (see `LocalLLM.Purpose.compose`).
+    public var model: String = ""
+    /// What to write when neither what you said nor the app says: "auto", "message", "email",
+    /// "bullets", "document" or "prompt".
+    public var defaultStyle: ComposeStyle = .auto
+    /// Long-form rambles run longer than dictation, so they get their own recording limit.
+    public var maxMinutes: Double = 15
+    public var timeoutSeconds: Double = 180
+    /// Every composed piece is kept here with what you said, one Markdown file each.
+    public var folder: String = "~/Documents/Murmur Library"
+    /// Added to the compose prompt, e.g. "I write in British English."
+    public var extraInstructions: String = ""
+
+    public init() {}
+}
+
 public struct FeedbackConfig: Codable, Equatable, Sendable {
     public var sounds: Bool = true
     public var pill: Bool = true
@@ -210,6 +233,15 @@ extension Config {
       // Or a shortcut: "ctrl+option+space", "cmd+shift+d", "f13".
       "hotkey": "fn",
 
+      // What each way of holding the hotkey does: "dictate" (exactly what you said, fastest),
+      // "clean" (filler words out, punctuation fixed) or "compose" (a rambling draft turned into
+      // finished writing, shown in a preview first). Hold ⌃ / ⌃⌥ with the hotkey at any point.
+      "modes": {
+        "hotkey": "dictate",
+        "withControl": "clean",
+        "withControlOption": "compose"
+      },
+
       "transcription": {
         // "auto": Groq or OpenAI if a key is in .env, otherwise local whisper.cpp.
         // "local": always whisper.cpp, fully offline. Or force "groq" / "openai".
@@ -237,8 +269,8 @@ extension Config {
       },
 
       "cleanup": {
-        // Removes filler words and fixes punctuation. If it fails or no key is set,
-        // the raw transcript is inserted instead.
+        // "clean" mode: removes filler words and fixes punctuation. If it fails or no model is
+        // available, the raw transcript is inserted instead. false: "clean" works like "dictate".
         "enabled": true,
         // "auto" (first of Groq, OpenAI, Anthropic with a key), "groq", "openai",
         // "anthropic", or "custom" for any OpenAI-compatible server in baseURL.
@@ -293,6 +325,22 @@ extension Config {
         "summaryProvider": "auto",
         "summaryModel": "",
         "summaryTimeoutSeconds": 600
+      },
+
+      // Compose (hotkey + ⌃⌥): say it however it comes out; get it back thought through.
+      "compose": {
+        // Same choices as cleanup.provider. On "auto" with no API key, the biggest local model
+        // that fits this Mac's memory. Set "model" to pin one, e.g. "qwen3:30b".
+        "provider": "auto",
+        "model": "",
+        // "auto" (from what you said, then the app), "message", "email", "bullets",
+        // "document" or "prompt". Say "as bullet points" or "make it an email" to pick one.
+        "defaultStyle": "auto",
+        "maxMinutes": 15,
+        "timeoutSeconds": 180,
+        // Every piece is kept here with what you said. Browse it from the menu: Compose Library.
+        "folder": "~/Documents/Murmur Library",
+        "extraInstructions": ""
       }
     }
 

@@ -36,7 +36,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         statusItem.button?.title = controller.meeting.map { " " + MeetingTranscript.clock($0.elapsed) } ?? ""
         statusItem.button?.image = image
         statusItem.button?.imagePosition = .imageLeft
-        statusItem.button?.toolTip = controller.enabled ? "Murmur: hold \(controller.hotkeyDescription) to dictate" : "Murmur is off"
+        statusItem.button?.toolTip = controller.enabled ? "Murmur: " + controller.modesDescription : "Murmur is off"
     }
 
     private func symbol(_ name: String) -> NSImage? {
@@ -59,10 +59,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
         addMeetingItems(to: menu)
+        menu.addItem(item("Compose Library…", action: #selector(showLibrary), key: "l"))
 
         menu.addItem(.separator())
         if controller.usesLocalWhisper { menu.addItem(submenu("Speech Model", speechModelMenu())) }
-        menu.addItem(submenu("Cleanup", cleanupMenu()))
+        menu.addItem(submenu("Cleanup & Compose", writingMenu()))
         menu.addItem(submenu("Settings", settingsMenu()))
 
         menu.addItem(.separator())
@@ -81,7 +82,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             return line
         }
         if !controller.enabled { return info("Dictation is off") }
-        return info("Ready · hold \(controller.hotkeyDescription) to talk, double-tap for hands-free")
+        return info("Ready · " + controller.modesDescription)
     }
 
     private func addMeetingItems(to menu: NSMenu) {
@@ -119,15 +120,20 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         return menu
     }
 
-    private func cleanupMenu() -> NSMenu {
+    private func writingMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let toggle = item("Fix Punctuation & Remove Filler Words", action: #selector(toggleCleanup))
-        toggle.state = controller.cleanupEnabled ? .on : .off
-        menu.addItem(toggle)
-        if controller.cleanupEnabled {
-            menu.addItem(info("Using: \(controller.cleanerName)"))
+        let hotkey = controller.hotkeyDescription
+        if controller.hasModes {
+            menu.addItem(info("Hold ⌃ with \(hotkey) to clean up, ⌃⌥ to compose; double-tap for hands-free"))
+            let plain = item("Clean Up Plain \(hotkey) Too", action: #selector(togglePlainCleanup))
+            plain.state = controller.plainMode == .clean ? .on : .off
+            plain.isEnabled = [.dictate, .clean].contains(controller.plainMode)
+            menu.addItem(plain)
+            menu.addItem(.separator())
         }
+
+        menu.addItem(info("Clean up: \(controller.cleanerName)"))
         if let model = controller.cleanupOllamaModel {
             let keep = NSMenu()
             keep.autoenablesItems = false
@@ -139,6 +145,35 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             }
             menu.addItem(submenu("Keep \(model) Loaded", keep))
         }
+
+        menu.addItem(.separator())
+        menu.addItem(info("Compose: \(controller.composerName)"))
+        let choices = controller.composeModelChoices
+        if !choices.isEmpty {
+            let models = NSMenu()
+            models.autoenablesItems = false
+            let pinned = controller.composeModelSetting
+            let automatic = item("Automatic: best that fits this Mac" + (controller.automaticComposeModel.map { " (\($0))" } ?? ""),
+                                 action: #selector(setComposeModel(_:)))
+            automatic.representedObject = ""
+            automatic.state = pinned.isEmpty ? .on : .off
+            models.addItem(automatic)
+            models.addItem(.separator())
+            for name in choices {
+                let choice = item(name + (controller.composeModelSize(name).map { " · \($0)" } ?? ""),
+                                  action: #selector(setComposeModel(_:)))
+                choice.representedObject = name
+                choice.state = name == pinned ? .on : .off
+                models.addItem(choice)
+            }
+            menu.addItem(submenu("Compose Model", models))
+        }
+        if let suggestion = controller.composeSuggestion {
+            let copy = item("Better for this Mac: copy \"ollama pull \(suggestion)\"", action: #selector(copyPullCommand(_:)))
+            copy.representedObject = suggestion
+            menu.addItem(copy)
+        }
+
         menu.addItem(.separator())
         menu.addItem(info("Meeting summaries: \(controller.summaryName)"))
         return menu
@@ -153,6 +188,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(login)
         menu.addItem(.separator())
         menu.addItem(item("Open Meeting Notes Folder", action: #selector(openMeetings)))
+        menu.addItem(item("Open Compose Library Folder", action: #selector(openLibraryFolder)))
         menu.addItem(item("Open Settings File", action: #selector(openSettings), key: ","))
         menu.addItem(item("Open API Keys (.env)", action: #selector(openEnv)))
         menu.addItem(item("Reload Settings", action: #selector(reload), key: "r"))
@@ -244,8 +280,23 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controller.showSetup()
     }
 
-    @objc private func toggleCleanup() {
-        controller.setCleanupEnabled(!controller.cleanupEnabled)
+    @objc private func togglePlainCleanup() {
+        controller.setPlainMode(controller.plainMode == .clean ? .dictate : .clean)
+    }
+
+    @objc private func setComposeModel(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        controller.setComposeModel(name)
+    }
+
+    @objc private func copyPullCommand(_ sender: NSMenuItem) {
+        guard let model = sender.representedObject as? String else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("ollama pull \(model)", forType: .string)
+    }
+
+    @objc private func showLibrary() {
+        controller.showLibrary()
     }
 
     @objc private func setKeepAlive(_ sender: NSMenuItem) {
@@ -263,6 +314,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     @objc private func openMeetings() {
         controller.openMeetingsFolder()
+    }
+
+    @objc private func openLibraryFolder() {
+        controller.openLibraryFolder()
     }
 
     @objc private func quit() {

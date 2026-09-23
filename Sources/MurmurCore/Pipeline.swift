@@ -102,6 +102,15 @@ extension Config {
         return LLMCleaner(chat: chat, timeout: c.timeoutSeconds, extraInstructions: c.extraInstructions)
     }
 
+    /// Builds the Compose writer, or nil when `auto` finds no model to use.
+    public func makeComposer(env: [String: String], local: LocalLLM? = nil,
+                             client: HTTPClient = URLSessionHTTPClient()) throws -> Composer? {
+        let c = compose
+        guard let chat = try makeChatModel(provider: c.provider, model: c.model, baseURL: cleanup.baseURL,
+                                           env: env, local: local, purpose: .compose, client: client) else { return nil }
+        return Composer(chat: chat, timeout: c.timeoutSeconds, extraInstructions: c.extraInstructions)
+    }
+
     /// Resolves a provider setting to a chat model. `local` is what `LocalLLM.detect` found, if anything.
     /// Returns nil only for `auto` with nothing available.
     public func makeChatModel(provider: CleanupProvider, model: String, baseURL: String = "",
@@ -173,13 +182,15 @@ public struct DictationPipeline: Sendable {
         self.prompt = prompt
     }
 
-    public init(config: Config, env: [String: String], local: LocalLLM? = nil,
+    /// Only `clean` gets a cleaner: `dictate` inserts what Whisper heard, and `compose` hands the
+    /// transcript to the Composer.
+    public init(config: Config, env: [String: String], local: LocalLLM? = nil, mode: DictationMode = .clean,
                 client: HTTPClient = URLSessionHTTPClient()) throws {
         let language = config.transcription.language.trimmingCharacters(in: .whitespaces).lowercased()
         let vocabulary = config.transcription.vocabulary.filter { !$0.isEmpty }
         self.init(
             transcriber: try config.makeTranscriber(env: env, client: client),
-            cleaner: try config.makeCleaner(env: env, local: local, client: client),
+            cleaner: mode == .clean ? try config.makeCleaner(env: env, local: local, client: client) : nil,
             language: language.isEmpty || language == "auto" ? nil : language,
             prompt: vocabulary.isEmpty ? nil : vocabulary.joined(separator: ", ") + "."
         )

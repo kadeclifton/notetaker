@@ -18,6 +18,9 @@ final class HotkeyMonitor: @unchecked Sendable {
 
     /// Called on the main thread with the input and the uptime at which the key event happened.
     var onInput: (@MainActor (DictationInput, TimeInterval) -> Void)?
+    /// Called on the main thread with the other modifiers (⌃, ⌥, …) held while a modifier-only
+    /// hotkey is down: at the press, and whenever they change. They pick the dictation mode.
+    var onModifiers: (@MainActor (ShortcutModifiers) -> Void)?
 
     private var current: TapContext?
 
@@ -27,12 +30,17 @@ final class HotkeyMonitor: @unchecked Sendable {
     @discardableResult
     func start(spec: HotkeySpec) -> Bool {
         stop()
-        let context = TapContext(spec: spec) { [weak self] input, time in
+        let context = TapContext(spec: spec, emit: { [weak self] input, time in
             let monitor = self
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { monitor?.onInput?(input, time) }
             }
-        }
+        }, emitModifiers: { [weak self] modifiers in
+            let monitor = self
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { monitor?.onModifiers?(modifiers) }
+            }
+        })
         guard context.run() else { return false }
         current = context
         return true
@@ -48,15 +56,18 @@ final class HotkeyMonitor: @unchecked Sendable {
 private final class TapContext: @unchecked Sendable {
     let spec: HotkeySpec
     private let emit: (DictationInput, TimeInterval) -> Void
+    private let emitModifiers: (ShortcutModifiers) -> Void
     private var tap: CFMachPort?
     private var runLoop: CFRunLoop?
     private var hotkeyIsDown = false
     private let lock = NSLock()
     private var stopped = false
 
-    init(spec: HotkeySpec, emit: @escaping (DictationInput, TimeInterval) -> Void) {
+    init(spec: HotkeySpec, emit: @escaping (DictationInput, TimeInterval) -> Void,
+         emitModifiers: @escaping (ShortcutModifiers) -> Void) {
         self.spec = spec
         self.emit = emit
+        self.emitModifiers = emitModifiers
     }
 
     /// Starts the tap thread and waits until the tap exists (or failed to).
@@ -151,6 +162,8 @@ private final class TapContext: @unchecked Sendable {
                 } else if hotkeyIsDown && !key.isDown(flags: flags) {
                     setHotkey(down: false)
                 }
+                // Sent after hotkeyDown, so the recording it belongs to has already started.
+                if hotkeyIsDown { emitModifiers(key.extraModifiers(flags: flags)) }
                 return passThrough
             }
             if type == .keyDown {

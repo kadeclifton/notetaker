@@ -59,31 +59,46 @@ public enum ConfigFileEdit {
 }
 
 extension ConfigFileEdit {
-    /// Sets `cleanup.enabled`, adding the key if the cleanup section lacks it. Nil if the settings
-    /// file has no cleanup section to edit.
-    public static func settingCleanupEnabled(_ enabled: Bool, in text: String) -> String? {
-        let value = enabled ? "true" : "false"
-        let range = NSRange(text.startIndex..., in: text)
-        // "enabled" inside the cleanup object (which holds no nested objects).
-        if let regex = try? NSRegularExpression(pattern: #"("cleanup"\s*:\s*\{[^{}]*?"enabled"\s*:\s*)(true|false)"#),
-           let match = regex.firstMatch(in: text, range: range),
-           let flag = Range(match.range(at: 2), in: text) {
-            return text.replacingCharacters(in: flag, with: value)
+    /// Sets `"section": { "key": value }` in the settings text, keeping comments and layout.
+    /// Adds the key, or the whole section, if it is missing. `json` is the value as JSON, e.g.
+    /// `"\"clean\""` or `true`. The section must be flat (no nested objects). Nil if the result
+    /// would not parse or `verify` rejects it.
+    public static func setting(_ section: String, _ key: String, json: String, in text: String,
+                               verify: (Config) -> Bool) -> String? {
+        let whole = NSRange(text.startIndex..., in: text)
+        var candidates: [String] = []
+        let value = #"("(?:[^"\\]|\\.)*"|true|false|-?[0-9][0-9.]*)"#
+        if let regex = try? NSRegularExpression(pattern: #"("\#(section)"\s*:\s*\{[^{}]*?"\#(key)"\s*:\s*)"# + value),
+           let match = regex.firstMatch(in: text, range: whole),
+           let old = Range(match.range(at: 2), in: text) {
+            candidates.append(text.replacingCharacters(in: old, with: json))
+        } else if let regex = try? NSRegularExpression(pattern: #""\#(section)"\s*:\s*\{"#),
+                  let match = regex.firstMatch(in: text, range: whole),
+                  let open = Range(match.range, in: text) {
+            candidates.append(text.replacingCharacters(in: open, with: String(text[open]) + " \"\(key)\": \(json),"))
+        } else if let close = text.lastIndex(of: "}") {
+            // No such section (a settings file from an older Murmur): add one at the end.
+            let addition = "\"\(section)\": { \"\(key)\": \(json) }\n"
+            candidates.append(text.replacingCharacters(in: close..<close, with: ",\n  " + addition))
+            candidates.append(text.replacingCharacters(in: close..<close, with: "  " + addition))
         }
-        if let regex = try? NSRegularExpression(pattern: #""cleanup"\s*:\s*\{"#),
-           let match = regex.firstMatch(in: text, range: range),
-           let open = Range(match.range, in: text) {
-            return text.replacingCharacters(in: open, with: String(text[open]) + " \"enabled\": \(value),")
+        return candidates.first { candidate in
+            (try? Config.parse(candidate)).map(verify) ?? false
         }
-        return nil
     }
 
-    /// Same, on disk; verifies the result before writing. False if it could not be applied.
-    public static func setCleanupEnabled(_ enabled: Bool, in file: URL) throws -> Bool {
+    /// Same, on disk. False if it could not be applied.
+    public static func set(_ section: String, _ key: String, json: String, in file: URL,
+                           verify: (Config) -> Bool) throws -> Bool {
         let text = try String(contentsOf: file, encoding: .utf8)
-        guard let updated = settingCleanupEnabled(enabled, in: text),
-              try Config.parse(updated).cleanup.enabled == enabled else { return false }
+        guard let updated = setting(section, key, json: json, in: text, verify: verify) else { return false }
         try Data(updated.utf8).write(to: file, options: .atomic)
         return true
+    }
+
+    /// A JSON string literal.
+    public static func quoted(_ string: String) -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: [string])) ?? Data("[\"\"]".utf8)
+        return String(String(decoding: data, as: UTF8.self).dropFirst().dropLast())
     }
 }

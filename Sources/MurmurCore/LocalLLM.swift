@@ -24,12 +24,14 @@ public struct LocalLLM: Sendable, Equatable {
         case cleanup
         /// Meeting summaries run once per meeting; a bigger model is worth the wait.
         case summary
+        /// Compose rewrites long rambles on request: the most capable model that fits in memory.
+        case compose
     }
 
     /// Chat-model families that follow instructions well, best first.
     static let preferredFamilies = ["qwen3", "qwen2.5", "llama3.2", "llama3.1", "gemma3", "gemma2", "mistral", "phi4", "phi3", "llama"]
     /// Models that cannot chat: embeddings, speech, vision encoders.
-    static let nonChatMarkers = ["embed", "bge", "minilm", "whisper", "clip", "rerank"]
+    public static let nonChatMarkers = ["embed", "bge", "minilm", "whisper", "clip", "rerank"]
     /// Code models chat, but rewrite prose poorly; used only when nothing else is there.
     static let codeMarkers = ["coder", "code", "starcoder", "codestral"]
     /// Above this, a model is too slow to run on every dictation (about 8B parameters at 4-bit).
@@ -38,7 +40,8 @@ public struct LocalLLM: Sendable, Equatable {
 
     /// The configured model if one is set, else the best model on offer for the purpose.
     /// For cleanup only small general chat models qualify; nil means "don't use a local model".
-    public func pickModel(preferred: String = "", for purpose: Purpose = .cleanup) -> String? {
+    public func pickModel(preferred: String = "", for purpose: Purpose = .cleanup,
+                          memoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory) -> String? {
         if !preferred.isEmpty { return preferred }
         let chat = models.filter { name in
             let lower = name.lowercased()
@@ -52,7 +55,36 @@ public struct LocalLLM: Sendable, Equatable {
             return best(in: small, smallestFirst: true)
         case .summary:
             return best(in: general, smallestFirst: false) ?? best(in: chat, smallestFirst: false)
+        case .compose:
+            let fits = general.filter { fitsInMemory($0, memoryBytes: memoryBytes) }
+            return best(in: fits, smallestFirst: false)
+                ?? general.min { size(of: $0) < size(of: $1) }
+                ?? best(in: chat, smallestFirst: false)
         }
+    }
+
+    /// Room for macOS, the apps you have open, and the speech model: a model may use up to 60% of memory.
+    static let composeMemoryShare = 0.6
+
+    func fitsInMemory(_ name: String, memoryBytes: UInt64) -> Bool {
+        let bytes = sizes[name].map(Double.init) ?? Self.parameterBillions(in: name).map { $0 * 600_000_000 }
+        guard let bytes else { return true }
+        return bytes <= Double(memoryBytes) * Self.composeMemoryShare
+    }
+
+    /// The Ollama model worth pulling for Compose on a Mac with this much memory.
+    public static func suggestedComposeModel(memoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory) -> String {
+        let gigabytes = Double(memoryBytes) / 1_073_741_824
+        if gigabytes >= 31 { return "qwen3:30b" }
+        if gigabytes >= 23 { return "qwen3:14b" }
+        if gigabytes >= 15 { return "qwen3:8b" }
+        return "qwen3:4b"
+    }
+
+    /// "18.6 GB", or nil if the server did not say.
+    public func sizeDescription(of name: String) -> String? {
+        guard let bytes = sizes[name] else { return nil }
+        return String(format: "%.1f GB", Double(bytes) / 1_000_000_000)
     }
 
     private func best(in names: [String], smallestFirst: Bool) -> String? {

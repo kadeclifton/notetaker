@@ -6,9 +6,12 @@ import FoundationNetworking
 public struct CleanupContext: Sendable, Equatable {
     /// Name of the app the text is going into, e.g. "Slack". Helps pick the register.
     public var appName: String?
+    /// Title of its focused window, e.g. "Inbox - Gmail" in a browser. Only Compose uses it.
+    public var windowTitle: String?
 
-    public init(appName: String? = nil) {
+    public init(appName: String? = nil, windowTitle: String? = nil) {
         self.appName = appName
+        self.windowTitle = windowTitle
     }
 }
 

@@ -17,6 +17,8 @@ final class PillModel: ObservableObject {
     @Published var remaining: TimeInterval = 300
     @Published var level: Float = 0
     @Published var hotkeyName = "fn"
+    /// What this recording will become; changes when ⌃ or ⌃⌥ joins the hotkey.
+    @Published var mode: DictationMode = .dictate
 }
 
 /// A small always-on-top capsule near the bottom of the screen. It never takes focus
@@ -113,12 +115,14 @@ struct PillView: View {
         case .recording(.hold):
             Circle().fill(Color.red).frame(width: 8, height: 8)
             Text("Listening")
+            ModeTag(mode: model.mode)
             LevelMeter(level: model.level)
             Text(Self.clock(model.elapsed)).monospacedDigit().foregroundStyle(.white.opacity(0.6))
 
         case .recording(.handsFree):
             Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(.orange)
             Text("Hands-free")
+            ModeTag(mode: model.mode)
             LevelMeter(level: model.level)
             if model.remaining <= 30 {
                 Text("stops in \(Int(model.remaining.rounded(.up)))s").monospacedDigit().foregroundStyle(.orange)
@@ -142,6 +146,24 @@ struct PillView: View {
     static func clock(_ seconds: TimeInterval) -> String {
         let s = Int(seconds)
         return String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
+/// "Clean Up" or "Compose" next to "Listening"; nothing for plain dictation.
+private struct ModeTag: View {
+    var mode: DictationMode
+
+    var body: some View {
+        switch mode {
+        case .dictate:
+            EmptyView()
+        case .clean, .compose:
+            Text(mode.title)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(mode == .compose ? Color.purple.opacity(0.85) : Color.blue.opacity(0.75)))
+        }
     }
 }
 

@@ -16,6 +16,21 @@ final class DictationController {
     private var tapRetryTimer: Timer?
     private var hotkeySpec: HotkeySpec = .modifier(.fn)
 
+    /// ⌃ / ⌃⌥ held with the hotkey during this recording; picks dictate, clean or compose.
+    private var modeKeys: ModeKeys = .plain
+    private var currentMode: DictationMode { config.modes.mode(for: modeKeys) }
+    private lazy var compose: ComposeController = {
+        let compose = ComposeController(inserter: inserter)
+        compose.onSaved = { [weak self] in self?.library.refresh() }
+        compose.onMessage = { [weak self] message in self?.flash(message) }
+        compose.onTiming = { [weak self] timing in
+            self?.lastTiming = timing
+            self?.onChange?()
+        }
+        return compose
+    }()
+    private let library = LibraryWindowController()
+
     /// Transcriptions in flight. Each waits for the one before it before inserting, so text
     /// lands in the order it was dictated even when a later, shorter clip finishes first.
     private var jobs: [UUID: Task<Void, Never>] = [:]
@@ -34,6 +49,7 @@ final class DictationController {
     private(set) var lastTiming: String?
     private(set) var transcriberName = "–"
     private(set) var cleanerName = "off"
+    private(set) var composerName = "off"
     private(set) var summaryName = "off"
 
     /// Ollama or LM Studio, if one is running. Checked on launch, on reload and when the menu opens.
@@ -78,6 +94,7 @@ final class DictationController {
 
     func start() {
         hotkeys.onInput = { [weak self] input, time in self?.handle(input, at: time) }
+        hotkeys.onModifiers = { [weak self] modifiers in self?.modifiersChanged(modifiers) }
         downloader.onFinished = { [weak self] option in self?.useWhisperModel(option) }
         if Permissions.microphone == .notDetermined {
             Permissions.requestMicrophone { _ in
@@ -147,6 +164,11 @@ final class DictationController {
             transcriberName = "not ready"
             cleanerName = "–"
             pipelineProblem = "\(error)"
+        }
+        do {
+            composerName = try config.makeComposer(env: env, local: localLLM)?.name ?? "off (no API key or local model)"
+        } catch {
+            composerName = "not ready: \(error)"
         }
         let m = config.meeting
         let summary = m.summarize
@@ -295,20 +317,76 @@ final class DictationController {
         }
     }
 
-    var cleanupEnabled: Bool { config.cleanup.enabled }
+    /// The modes only apply to a modifier-only hotkey like fn; a shortcut hotkey is always plain.
+    var hasModes: Bool { hotkeySpec.isModifierOnly }
 
-    /// Turns dictation cleanup on or off from the menu, editing the settings file in place.
-    func setCleanupEnabled(_ enabled: Bool) {
+    /// "fn dictate · fn⌃ clean up · fn⌃⌥ compose", for the menu.
+    var modesDescription: String {
+        guard hasModes else { return "hold \(hotkeyDescription) to \(config.modes.hotkey.title.lowercased())" }
+        return ModeKeys.allCases.map { keys in
+            "\(keys.label(hotkey: hotkeyDescription)) \(config.modes.mode(for: keys).title.lowercased())"
+        }.joined(separator: " · ")
+    }
+
+    var plainMode: DictationMode { config.modes.hotkey }
+
+    /// Sets what the hotkey does on its own (the menu offers dictate or clean).
+    func setPlainMode(_ mode: DictationMode) {
+        editSettings("modes", "hotkey", json: ConfigFileEdit.quoted(mode.rawValue)) { $0.modes.hotkey == mode }
+    }
+
+    /// The compose model pinned in the settings, or "" for automatic.
+    var composeModelSetting: String { config.compose.model }
+
+    /// Local models that can write, for the Compose Model menu. Empty without Ollama or LM Studio,
+    /// or when compose uses a hosted API.
+    var composeModelChoices: [String] {
+        guard let local = localLLM, [.auto, .local].contains(config.compose.provider),
+              config.compose.provider == .local || composerName.hasPrefix(local.server) else { return [] }
+        return local.models.filter { name in
+            let lower = name.lowercased()
+            return !LocalLLM.nonChatMarkers.contains { lower.contains($0) }
+        }
+    }
+
+    /// What Automatic picks on this Mac.
+    var automaticComposeModel: String? { localLLM?.pickModel(for: .compose) }
+
+    func composeModelSize(_ name: String) -> String? { localLLM?.sizeDescription(of: name) }
+
+    /// A better model to pull for Compose, when Ollama is in use and this Mac could run one.
+    var composeSuggestion: String? {
+        guard let local = localLLM, local.isOllama, !composeModelChoices.isEmpty else { return nil }
+        let suggested = LocalLLM.suggestedComposeModel()
+        return local.models.contains(suggested) ? nil : suggested
+    }
+
+    func setComposeModel(_ model: String) {
+        editSettings("compose", "model", json: ConfigFileEdit.quoted(model)) { $0.compose.model == model }
+    }
+
+    /// Changes one setting in the settings file (comments kept) and reloads.
+    private func editSettings(_ section: String, _ key: String, json: String, verify: (Config) -> Bool) {
         do {
             _ = try Config.loadOrCreate(at: AppPaths.configFile)
-            if try ConfigFileEdit.setCleanupEnabled(enabled, in: AppPaths.configFile) {
+            if try ConfigFileEdit.set(section, key, json: json, in: AppPaths.configFile, verify: verify) {
                 reloadConfig()
             } else {
-                fail("Could not change cleanup: add a \"cleanup\" section to the settings file.")
+                fail("Could not change \(section).\(key) in the settings file. Edit it by hand, then Reload Settings.")
             }
         } catch {
             fail("Could not update the settings file: \(error)")
         }
+    }
+
+    func openLibraryFolder() {
+        let folder = LibraryStore(config: config.compose).folder
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(folder)
+    }
+
+    func showLibrary() {
+        library.show(store: LibraryStore(config: config.compose))
     }
 
     /// After an update, System Settings can show Murmur switched on while the grant belongs to the
@@ -382,13 +460,44 @@ final class DictationController {
                 discardRecording(reason)
             case .cancelProcessing:
                 cancelJobs(showMessage: true)
+                if compose.isShowing { compose.dismiss() }
             }
         }
         onChange?()
     }
 
+    /// ⌃ or ⌃⌥ joined the hotkey: this recording becomes clean or compose. Never goes back down.
+    private func modifiersChanged(_ modifiers: ShortcutModifiers) {
+        guard machine.isRecording, hasModes else { return }
+        let keys = ModeKeys(extraModifiers: modifiers)
+        guard keys > modeKeys else { return }
+        let before = currentMode
+        modeKeys = keys
+        if currentMode != before { applyMode() }
+    }
+
+    /// Mode-specific recording settings: the pill's tag, and Compose's longer time limit.
+    private func applyMode() {
+        let mode = currentMode
+        let minutes = mode == .compose ? config.compose.maxMinutes : config.handsFree.maxMinutes
+        machine.timing.maxDuration = max(10, minutes * 60)
+        pill.model.mode = mode
+        if recordingAnnounced, let recording = machine.mode { showRecordingPill(recording) }
+        if mode == .compose { warmComposeModel() }
+    }
+
+    /// Starts loading a local compose model while you are still talking, so writing starts
+    /// as soon as the transcript is ready rather than after a 10-20 s model load.
+    private func warmComposeModel() {
+        guard let chat = (try? config.makeComposer(env: env, local: localLLM))?.chat as? OllamaChat else { return }
+        let model = chat.model
+        Task.detached { await LocalLLM.keepLoaded(model: model, for: .fiveMinutes) }
+    }
+
     private func startRecording() {
         recordingAnnounced = false
+        modeKeys = .plain
+        applyMode()
         recorder.start { [weak self] error in
             guard let self, let error else { return }
             if self.machine.isRecording {
@@ -451,7 +560,7 @@ final class DictationController {
             play("Funk")
             flash("Cancelled")
         case .timeLimit:
-            flash("Stopped at \(Int(config.handsFree.maxMinutes)) min limit, discarded")
+            flash("Stopped at \(Int(machine.timing.maxDuration / 60)) min limit, discarded")
         case .escape, .singleTap, .chord:
             refreshPill()
         }
@@ -461,14 +570,21 @@ final class DictationController {
         recordingAnnounced = false
         stopTicking()
         play("Pop")
-        let context = CleanupContext(appName: NSWorkspace.shared.frontmostApplication?.localizedName)
+        let mode = currentMode
+        let target = NSWorkspace.shared.frontmostApplication
+        // Compose adapts to the page too (Gmail vs. ChatGPT in the same browser).
+        let context = CleanupContext(appName: target?.localizedName,
+                                     windowTitle: mode == .compose ? FocusedWindow.title(of: target) : nil)
         recorder.stop { [weak self] samples in
-            self?.transcribe(samples, reason: reason, context: context)
+            self?.transcribe(samples, reason: reason, context: context, mode: mode, target: target)
         }
-        if config.feedback.pill { pill.show(.processing) }
+        if config.feedback.pill {
+            if mode == .compose { pill.hide() } else { pill.show(.processing) }
+        }
     }
 
-    private func transcribe(_ samples: [Float], reason: FinishReason, context: CleanupContext) {
+    private func transcribe(_ samples: [Float], reason: FinishReason, context: CleanupContext,
+                            mode: DictationMode, target: NSRunningApplication?) {
         if Audio.duration(of: samples) < 0.2 {
             refreshPill()
             return
@@ -479,9 +595,24 @@ final class DictationController {
         }
         let pipeline: DictationPipeline
         do {
-            pipeline = try DictationPipeline(config: config, env: env, local: localLLM)
+            pipeline = try DictationPipeline(config: config, env: env, local: localLLM, mode: mode)
         } catch {
             fail("\(error)")
+            return
+        }
+        if mode == .compose {
+            let composer: Composer?
+            do {
+                composer = try config.makeComposer(env: env, local: localLLM)
+            } catch {
+                composer = nil
+                lastFailure = "Compose: \(error)"
+            }
+            compose.start(samples: samples,
+                          setup: .init(pipeline: pipeline, composer: composer, store: LibraryStore(config: config.compose),
+                                       insertion: config.insertion, defaultStyle: config.compose.defaultStyle),
+                          context: context, target: target)
+            refreshPill()
             return
         }
         let insertion = config.insertion
@@ -544,6 +675,7 @@ final class DictationController {
         recordingAnnounced = false
         stopTicking()
         cancelJobs(showMessage: false)
+        compose.dismiss()
         pill.hide()
     }
 

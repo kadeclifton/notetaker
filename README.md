@@ -1,9 +1,14 @@
 # Murmur
 
 System-wide dictation for macOS, in the spirit of Wispr Flow. Hold a key, talk, let go, and
-the cleaned-up text appears at your cursor in whatever app has focus.
+the text appears at your cursor in whatever app has focus.
 
-- **Hold to talk.** Hold `fn` (or a key you pick), speak, release. Murmur transcribes, cleans up and pastes.
+- **Three ways to talk.** Hold `fn` alone for plain dictation: exactly what you said, as fast as
+  possible. Add `⌃` (fn⌃) to clean it up: filler words out, punctuation fixed. Add `⌃⌥` (fn⌃⌥) to
+  **Compose**: ramble it out, and a bigger model turns it into finished writing (a message, an email,
+  bullets, a doc, an AI prompt) in a preview you can insert, copy, restyle or edit.
+- **Compose Library.** Everything Compose writes is kept with what you said, as Markdown files you
+  can browse, search and edit from the menu bar.
 - **Hands-free.** Double-tap the hotkey and it keeps recording with nothing held. Tap once more to finish.
   It stops by itself after 5 minutes, so a forgotten session can't record all afternoon.
 - **Esc cancels.** During recording it drops the audio. During transcription it kills the job
@@ -23,7 +28,7 @@ the cleaned-up text appears at your cursor in whatever app has focus.
   summary, decisions, action items and the full transcript. Works with Zoom, Meet, Teams, FaceTime,
   anything that plays through your Mac.
 - **Local models, no keys needed.** Murmur finds Ollama or LM Studio running on your Mac and uses it for
-  cleanup and meeting summaries.
+  cleanup, Compose and meeting summaries, sized to what your Mac can run.
 - **Menu bar** toggle for on/off, launch at login, and shortcuts to the settings file and `.env`.
 - **No accounts, no telemetry.** Nothing leaves your Mac unless you configure a cloud API.
   With the local model and cleanup off (or a local LLM), it works fully offline.
@@ -118,22 +123,63 @@ Click the wave in the menu bar:
 - **Status line**: "Ready", or **⚠️ Finish Setup…** when something needs fixing (click it).
 - **Dictation** (⌘E): on/off.
 - **Start Meeting Notes** (⌘M).
+- **Compose Library…** (⌘L): everything Compose has written.
 - **Speech Model**: Fastest / Balanced / Most accurate, and how long the last dictation took.
-- **Cleanup**: punctuation and filler-word cleanup on/off, which model it uses, and how long Ollama
-  keeps that model loaded.
-- **Settings**: setup window, launch at login, the meeting notes folder, the settings and API key files.
+- **Cleanup & Compose**: whether plain fn cleans up too, which models clean up and compose, how long
+  Ollama keeps the cleanup model loaded, and **Compose Model** (Automatic picks the best one that fits
+  your Mac; pick another on slower hardware).
+- **Settings**: setup window, launch at login, the meeting notes and library folders, the settings and API key files.
 
 ## Using it
 
 | Do this | Result |
 | --- | --- |
-| Hold the hotkey, talk, release | Transcribe, clean up, insert at the cursor |
+| Hold fn, talk, release | Insert exactly what you said (no language model, fastest) |
+| Hold fn⌃, talk, release | Insert it cleaned up: no "um"s, fixed punctuation, your words |
+| Hold fn⌃⌥, talk, release | Compose: a preview panel writes it up; ⏎ inserts, Esc closes |
 | Double-tap the hotkey | Hands-free recording starts (pill shows 🔒 Hands-free) |
 | Tap the hotkey during hands-free | Stop, transcribe, insert |
 | Esc while recording | Discard the recording |
 | Esc while the pill says "Transcribing" | Cancel the transcription; nothing is inserted |
 | A single quick tap | Nothing (it's ignored) |
 | fn + another key within 0.4 s (e.g. fn+←) | Treated as a normal shortcut; the recording is dropped |
+
+⌃ and ⌥ count whenever they are held with fn during the recording, so you can start talking and add
+them after. The pill shows the mode (**Clean Up** or **Compose**). Double-tapping works in every mode;
+for hands-free Compose, hold ⌃⌥ during either tap. Compose recordings may run 15 minutes
+(`compose.maxMinutes`). The modes apply to a modifier hotkey like fn; a shortcut hotkey such as
+`ctrl+option+space` does whatever `modes.hotkey` says.
+
+## Compose
+
+Hold **fn⌃⌥** and talk it through however it comes out: false starts, "wait, no", tangents. Let go,
+and a panel opens and writes it as you watch. It keeps every fact, name and number, drops the
+thinking-out-loud, puts it in order, and keeps your voice.
+
+The **style** adapts:
+
+1. **Say it**: "…as bullet points", "make this an email to Sam", "write it as a prompt".
+2. **Pick it** in the panel: Auto, Message, Email, Bullets, Document, AI Prompt. It rewrites at once.
+3. **From the app**: Slack or Messages → message, Mail or Gmail → email, Notes or Notion → document,
+   ChatGPT, Claude, Cursor or Terminal → AI prompt. In a browser it goes by the page title.
+4. Otherwise **Auto** picks the form that fits the content. `compose.defaultStyle` changes the fallback.
+
+In the panel: **⏎ Insert** puts it where your cursor was, **Copy**, **Try Again** for another take,
+**Edit** to change it first, and **What I said** shows the transcript. Hold fn to dictate into the
+editor too.
+
+**Compose Library** (⌘L) keeps every piece with what you said, newest first, with search. It saves
+the moment the transcript is ready, so a ramble is never lost even if you close the panel. Edit a
+piece there and it is saved. The pieces are plain Markdown files in `~/Documents/Murmur Library`
+(`compose.folder`), so Spotlight finds them too.
+
+**Which model.** Compose only runs when you ask, so it uses the most capable local model that fits
+in your Mac's memory (up to 60% of it), not the small cleanup model. With 32 GB or more that is
+`qwen3:30b` (a fast mixture-of-experts model, about 19 GB); 24 GB → `qwen3:14b`; 16 GB →
+`qwen3:8b`; 8 GB → `qwen3:4b`. The menu suggests the one to pull and **Cleanup & Compose → Compose
+Model** overrides the choice (it sets `compose.model`). Murmur starts loading the model the moment
+you press ⌃⌥, while you are still talking. With a Groq, OpenAI or Anthropic key, `"provider": "auto"`
+uses that instead; set `"provider": "local"` under `compose` to keep it on your Mac.
 
 Silent recordings are dropped before transcription, since Whisper tends to invent text
 ("Thanks for watching!") for silence.
@@ -186,15 +232,15 @@ ollama list                  # Ollama
 ls ~/.lmstudio/models        # LM Studio
 ```
 
-With no API keys in `.env`, `"provider": "auto"` already uses the local model for cleanup and
-meeting summaries. To use it even when you have keys, set `"provider": "local"` under `cleanup`
+With no API keys in `.env`, `"provider": "auto"` already uses the local model for cleanup, Compose
+and meeting summaries. To use it even when you have keys, set `"provider": "local"` under `cleanup`
 and/or `"summaryProvider": "local"` under `meeting`. Set `"model"` / `"summaryModel"` to pick a
 specific one, e.g. `"qwen3:8b"`.
 
 For LM Studio, start its server: Developer tab → **Start Server**, with a model loaded.
 
 **Keeping the model loaded.** Ollama unloads a model after 5 idle minutes, and the next dictation then
-waits a few seconds while it loads again. When cleanup runs on Ollama, **Cleanup → Keep <model>
+waits a few seconds while it loads again. When cleanup runs on Ollama, **Cleanup & Compose → Keep <model>
 Loaded** offers with 5 minutes, 30 minutes (Murmur's default), 1 hour, 4 hours, or always. Murmur also loads
 the model at launch, so the first dictation doesn't wait. A 4B model takes about 3 GB of memory while
 it stays loaded. Meeting summary models are left to Ollama's normal 5 minutes.
@@ -214,6 +260,9 @@ back to its default. `MURMUR_HOME` moves the whole directory.
   // "fn", "rightOption", "rightCommand", "rightControl", "rightShift", "leftOption", ...
   // or a shortcut: "ctrl+option+space", "cmd+shift+d", "f13"
   "hotkey": "fn",
+
+  // "dictate" | "clean" | "compose" for the hotkey alone, with ⌃, and with ⌃⌥
+  "modes": { "hotkey": "dictate", "withControl": "clean", "withControlOption": "compose" },
 
   "transcription": {
     "engine": "auto",        // "auto" | "local" | "groq" | "openai"
@@ -259,6 +308,16 @@ back to its default. `MURMUR_HOME` moves the whole directory.
     "summaryProvider": "auto",  // same choices as cleanup.provider
     "summaryModel": "",
     "summaryTimeoutSeconds": 600
+  },
+
+  "compose": {
+    "provider": "auto",      // same choices as cleanup.provider
+    "model": "",             // empty: the best local model that fits this Mac, e.g. "qwen3:30b"
+    "defaultStyle": "auto",  // "auto" | "message" | "email" | "bullets" | "document" | "prompt"
+    "maxMinutes": 15,
+    "timeoutSeconds": 180,
+    "folder": "~/Documents/Murmur Library",
+    "extraInstructions": ""  // e.g. "I write in British English."
   }
 }
 ```
@@ -289,9 +348,9 @@ hotkey (CGEventTap) ─► state machine ─► AVAudioEngine @16 kHz ─► WAV
                                                           │
          whisper-server (local, model kept loaded)  or  Groq/OpenAI /audio/transcriptions
                                                           │
-                            LLM cleanup (falls back to the raw text on failure)
-                                                          │
-                                   pasteboard + Cmd-V  or  keystrokes
+   fn: as is  ·  fn⌃: LLM cleanup (raw text on failure)  ·  fn⌃⌥: Compose (streamed preview)
+                                                          │                        │
+                                   pasteboard + Cmd-V  or  keystrokes      Compose Library (.md)
 ```
 
 - `Sources/MurmurCore`: platform-independent logic: config, `.env`, hotkey parsing, the

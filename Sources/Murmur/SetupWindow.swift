@@ -53,6 +53,7 @@ final class SetupWindowController {
         model.inputMonitoring = Permissions.inputMonitoring && controller.hotkeyIsListening
         model.hotkey = controller.hotkeyDescription
         model.cleanup = controller.cleanerName
+        model.compose = controller.composerName
         model.localLLM = controller.localLLM.map { "\($0.server): \($0.models.joined(separator: ", "))" }
     }
 }
@@ -68,6 +69,7 @@ final class SetupModel: ObservableObject {
     @Published var inputMonitoring = false
     @Published var hotkey = "fn"
     @Published var cleanup = "off"
+    @Published var compose = "off"
     @Published var localLLM: String?
 
     var ready: Bool {
@@ -119,8 +121,12 @@ struct SetupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Hold \(model.hotkey), talk, let go: your words appear wherever you're typing.")
-                .font(.headline)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Hold \(model.hotkey), talk, let go: your words appear wherever you're typing.")
+                    .font(.headline)
+                Text("Add ⌃ to clean it up. Add ⌃⌥ to compose: talk it through, get it back written.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
 
             if model.usesLocalWhisper {
                 step(done: model.whisperInstalled, title: "Install whisper.cpp",
@@ -154,12 +160,12 @@ struct SetupView: View {
 
             Divider()
             VStack(alignment: .leading, spacing: 4) {
-                Text("Optional: punctuation and filler-word cleanup").font(.subheadline.weight(.semibold))
-                Text("Cleanup: \(model.cleanup)").font(.caption).foregroundStyle(.secondary)
+                Text("Optional: a local model for ⌃ cleanup and ⌃⌥ compose").font(.subheadline.weight(.semibold))
+                Text("Cleanup: \(model.cleanup) · Compose: \(model.compose)").font(.caption).foregroundStyle(.secondary)
                 if let local = model.localLLM {
                     Text("Found \(local)").font(.caption).foregroundStyle(.secondary)
                 } else {
-                    Text("Install Ollama (brew install ollama, then ollama serve) and run  ollama pull qwen3:4b . 16 GB Macs only; skip it on 8 GB.")
+                    Text("Install Ollama (brew install ollama, then ollama serve) and run  ollama pull qwen3:4b  for cleanup and  ollama pull \(LocalLLM.suggestedComposeModel())  for compose. On an 8 GB Mac, qwen3:4b alone.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

@@ -39,32 +39,57 @@ final class WhisperModelsTests: XCTestCase {
     }
 }
 
-final class CleanupToggleEditTests: XCTestCase {
-    func testTogglesTheCleanupFlagOnly() throws {
-        let off = try XCTUnwrap(ConfigFileEdit.settingCleanupEnabled(false, in: Config.defaultFileContents))
-        let config = try Config.parse(off)
-        XCTAssertFalse(config.cleanup.enabled)
-        XCTAssertEqual(config.meeting, MeetingConfig(), "nothing else changes")
-        XCTAssertTrue(off.contains("// Removes filler words"), "comments survive")
-        let on = try XCTUnwrap(ConfigFileEdit.settingCleanupEnabled(true, in: off))
-        XCTAssertEqual(on, Config.defaultFileContents)
+final class ConfigFileEditTests: XCTestCase {
+    func testChangesOneValueAndKeepsComments() throws {
+        let edited = try XCTUnwrap(ConfigFileEdit.setting("modes", "hotkey", json: ConfigFileEdit.quoted("clean"),
+                                                          in: Config.defaultFileContents) { $0.modes.hotkey == .clean })
+        let config = try Config.parse(edited)
+        XCTAssertEqual(config.modes.hotkey, .clean)
+        XCTAssertEqual(config.modes.withControlOption, .compose)
+        XCTAssertEqual(config.hotkey, "fn", "the top-level hotkey is untouched")
+        XCTAssertTrue(edited.contains("// What each way of holding the hotkey does"), "comments survive")
+        let back = try XCTUnwrap(ConfigFileEdit.setting("modes", "hotkey", json: #""dictate""#, in: edited) { _ in true })
+        XCTAssertEqual(back, Config.defaultFileContents)
     }
 
-    func testAddsTheKeyWhenMissing() throws {
+    func testBooleansAndStrings() throws {
+        let off = try XCTUnwrap(ConfigFileEdit.setting("cleanup", "enabled", json: "false",
+                                                       in: Config.defaultFileContents) { !$0.cleanup.enabled })
+        XCTAssertEqual(try Config.parse(off).meeting, MeetingConfig(), "nothing else changes")
+        let model = try XCTUnwrap(ConfigFileEdit.setting("compose", "model", json: ConfigFileEdit.quoted("qwen3:30b"),
+                                                         in: off) { $0.compose.model == "qwen3:30b" })
+        XCTAssertEqual(try Config.parse(model).cleanup.model, "", "only compose.model changed")
+        XCTAssertFalse(try Config.parse(model).cleanup.enabled)
+    }
+
+    func testAddsAMissingKey() throws {
         let text = #"{ "cleanup": { "provider": "local" } }"#
-        let edited = try XCTUnwrap(ConfigFileEdit.settingCleanupEnabled(false, in: text))
-        XCTAssertFalse(try Config.parse(edited).cleanup.enabled)
+        let edited = try XCTUnwrap(ConfigFileEdit.setting("cleanup", "enabled", json: "false", in: text) { !$0.cleanup.enabled })
         XCTAssertEqual(try Config.parse(edited).cleanup.provider, .local)
-        XCTAssertNil(ConfigFileEdit.settingCleanupEnabled(false, in: #"{ "hotkey": "fn" }"#))
+    }
+
+    func testAddsAMissingSectionToAnOlderFile() throws {
+        for text in ["{\n  \"hotkey\": \"fn\"\n}\n", "{\n  \"hotkey\": \"fn\",\n  // done\n}\n", "{}"] {
+            let edited = try XCTUnwrap(ConfigFileEdit.setting("modes", "hotkey", json: #""clean""#, in: text) { $0.modes.hotkey == .clean },
+                                       "for \(text)")
+            XCTAssertEqual(try Config.parse(edited).hotkey, "fn")
+        }
+    }
+
+    func testRefusesWhatWouldNotVerify() {
+        XCTAssertNil(ConfigFileEdit.setting("modes", "hotkey", json: #""shout""#, in: Config.defaultFileContents) { _ in true })
+        XCTAssertNil(ConfigFileEdit.setting("modes", "hotkey", json: #""clean""#, in: "not json") { _ in true })
+    }
+
+    func testQuoting() {
+        XCTAssertEqual(ConfigFileEdit.quoted(#"say "hi""#), #""say \"hi\"""#)
     }
 
     func testOnDisk() throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: file) }
         try Config.defaultFileContents.write(to: file, atomically: true, encoding: .utf8)
-        XCTAssertTrue(try ConfigFileEdit.setCleanupEnabled(false, in: file))
+        XCTAssertTrue(try ConfigFileEdit.set("cleanup", "enabled", json: "false", in: file) { !$0.cleanup.enabled })
         XCTAssertFalse(try Config.loadOrCreate(at: file).cleanup.enabled)
-        try #"{ "hotkey": "fn" }"#.write(to: file, atomically: true, encoding: .utf8)
-        XCTAssertFalse(try ConfigFileEdit.setCleanupEnabled(false, in: file))
     }
 }

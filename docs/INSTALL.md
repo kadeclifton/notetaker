@@ -40,14 +40,20 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
 
 ## Using it
 
-- **Hold fn**, talk, let go: the text is typed where your cursor is.
+- **Hold fn**, talk, let go: exactly what you said is typed where your cursor is.
+- **Hold fn⌃** (fn + control) to clean it up: no "um"s, proper punctuation.
+- **Hold fn⌃⌥** (fn + control + option) to **Compose**: ramble it out, and a panel writes it up as a
+  message, email, bullets and so on. Say "as bullet points" or "make it an email" to steer it, or pick
+  a style in the panel. Press Return to insert it. Everything is kept in the **Compose Library** (⌘L
+  from the menu). Cleanup and Compose need the optional model below.
 - **Double-tap fn** for hands-free; tap fn again to finish.
 - **Esc** cancels.
 - **Meeting Notes** (menu bar icon → Start Meeting Notes) records a call and writes notes. It asks for Screen &
   System Audio Recording the first time, to hear the other people.
 
 **Speech Model** in the menu switches between the speed and accuracy options and shows how long
-the last dictation took. **Cleanup** turns punctuation cleanup on and off.
+the last dictation took. **Cleanup & Compose** shows which models are in use and lets you pick a
+smaller Compose Model if writing feels slow.
 
 ## Updating
 
@@ -55,14 +61,17 @@ Download the new zip, replace Murmur in Applications, and run the `xattr` comman
 forgets Murmur's permissions on each update: open the menu → **Settings → Setup…** and click
 **Reset Murmur's Permissions and Ask Again**, then allow them again.
 
-## Optional: cleanup of punctuation and "um"s
+## Optional: cleanup (fn⌃) and Compose (fn⌃⌥)
 
-On a Mac with 16 GB or more:
+These need a local model. On a Mac with 16 GB or more:
 
 ```sh
 brew install ollama
 brew services start ollama
-ollama pull qwen3:4b
+ollama pull qwen3:4b     # cleanup
+ollama pull qwen3:8b     # Compose (with 32 GB or more: qwen3:30b)
 ```
 
-Murmur finds it automatically. On an 8 GB Mac, skip this; the raw transcript is already good.
+Murmur finds them automatically and the menu suggests the right Compose model for your Mac. On an
+8 GB Mac, pull only `qwen3:4b`; Compose will use it too, just a bit less polished. Plain fn works
+without any of this.

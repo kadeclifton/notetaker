@@ -9,6 +9,37 @@ public protocol ChatModel: Sendable {
     /// Human-readable, e.g. "Ollama qwen3:8b".
     var name: String { get }
     func complete(system: String, user: String, maxTokens: Int, timeout: TimeInterval) async throws -> String
+    /// The reply in pieces as the model writes it (Compose's preview). `timeout` is the longest
+    /// wait for the next piece. Models without streaming deliver the whole reply as one piece.
+    func stream(system: String, user: String, maxTokens: Int, temperature: Double,
+                timeout: TimeInterval) -> AsyncThrowingStream<String, Error>
+}
+
+extension ChatModel {
+    public func stream(system: String, user: String, maxTokens: Int, temperature: Double,
+                       timeout: TimeInterval) -> AsyncThrowingStream<String, Error> {
+        ChatStream.run { yield in
+            yield(try await complete(system: system, user: user, maxTokens: maxTokens, timeout: timeout))
+        }
+    }
+}
+
+enum ChatStream {
+    /// An AsyncThrowingStream fed by `body`, cancelled when the reader stops listening.
+    static func run(_ body: @escaping @Sendable (_ yield: @Sendable (String) -> Void) async throws -> Void)
+        -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try await body { continuation.yield($0) }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
 }
 
 /// OpenAI's `/chat/completions`, which Groq, Ollama, LM Studio and llama.cpp's server also speak.
@@ -29,21 +60,23 @@ public struct OpenAICompatibleChat: ChatModel {
 
     public var name: String { "\(service) \(model)" }
 
-    public func complete(system: String, user: String, maxTokens: Int, timeout: TimeInterval) async throws -> String {
+    func request(system: String, user: String, maxTokens: Int, temperature: Double,
+                 timeout: TimeInterval, stream: Bool) throws -> URLRequest {
         // Qwen 3 thinks out loud by default, which makes a two-second cleanup take twenty.
         // "/no_think" is its soft switch; LM Studio's Qwen 3 templates honour it. (Ollama goes
         // through OllamaChat instead, which has a real switch.)
         let lower = model.lowercased()
         let userContent = lower.contains("qwen3") && !lower.contains("coder") ? user + "\n/no_think" : user
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
-            "temperature": 0,
+            "temperature": temperature,
             "max_tokens": maxTokens,
             "messages": [
                 ["role": "system", "content": system],
                 ["role": "user", "content": userContent],
             ],
         ]
+        if stream { body["stream"] = true }
         var request = URLRequest(url: baseURL.appendingPathComponent("chat/completions"))
         request.httpMethod = "POST"
         request.timeoutInterval = timeout
@@ -52,7 +85,36 @@ public struct OpenAICompatibleChat: ChatModel {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
 
+    public func stream(system: String, user: String, maxTokens: Int, temperature: Double,
+                       timeout: TimeInterval) -> AsyncThrowingStream<String, Error> {
+        let client = self.client, service = self.service
+        let built = Result { try request(system: system, user: user, maxTokens: maxTokens, temperature: temperature,
+                                         timeout: timeout, stream: true) }
+        return ChatStream.run { yield in
+            // Server-sent events: "data: {json}" lines, then "data: [DONE]".
+            struct Chunk: Decodable {
+                struct Choice: Decodable {
+                    struct Delta: Decodable { let content: String? }
+                    let delta: Delta?
+                }
+                let choices: [Choice]
+            }
+            for try await line in try await HTTP.lines(try built.get(), client: client, service: service) {
+                guard line.hasPrefix("data:") else { continue }
+                let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+                if payload == "[DONE]" { break }
+                guard let chunk = try? JSONDecoder().decode(Chunk.self, from: Data(payload.utf8)) else { continue }
+                if let text = chunk.choices.first?.delta?.content, !text.isEmpty { yield(text) }
+            }
+        }
+    }
+
+    public func complete(system: String, user: String, maxTokens: Int, timeout: TimeInterval) async throws -> String {
+        let request = try request(system: system, user: user, maxTokens: maxTokens, temperature: 0,
+                                  timeout: timeout, stream: false)
         let data = try await HTTP.send(request, client: client, service: service)
         struct Response: Decodable {
             struct Choice: Decodable {
@@ -179,15 +241,49 @@ public struct OllamaChat: ChatModel {
         }
     }
 
-    private func send(system: String, user: String, maxTokens: Int, timeout: TimeInterval, think: Bool?) async throws -> String {
+    public func stream(system: String, user: String, maxTokens: Int, temperature: Double,
+                       timeout: TimeInterval) -> AsyncThrowingStream<String, Error> {
+        let chat = self
+        return ChatStream.run { yield in
+            do {
+                try await chat.streamLines(system: system, user: user, maxTokens: maxTokens, temperature: temperature,
+                                           timeout: timeout, think: false, yield: yield)
+            } catch let error as APIError where error.status == 400 && error.message.lowercased().contains("think") {
+                try await chat.streamLines(system: system, user: user, maxTokens: maxTokens, temperature: temperature,
+                                           timeout: timeout, think: nil, yield: yield)
+            }
+        }
+    }
+
+    /// Streamed /api/chat: one JSON object per line.
+    private func streamLines(system: String, user: String, maxTokens: Int, temperature: Double, timeout: TimeInterval,
+                             think: Bool?, yield: @Sendable (String) -> Void) async throws {
+        let request = try request(system: system, user: user, maxTokens: maxTokens, temperature: temperature,
+                                  timeout: timeout, think: think, stream: true)
+        struct Chunk: Decodable {
+            struct Message: Decodable { let content: String? }
+            let message: Message?
+            let error: String?
+            let done: Bool?
+        }
+        for try await line in try await HTTP.lines(request, client: client, service: "Ollama") {
+            guard let chunk = try? JSONDecoder().decode(Chunk.self, from: Data(line.utf8)) else { continue }
+            if let error = chunk.error { throw APIError(service: "Ollama", status: 500, message: error) }
+            if let text = chunk.message?.content, !text.isEmpty { yield(text) }
+            if chunk.done == true { break }
+        }
+    }
+
+    private func request(system: String, user: String, maxTokens: Int, temperature: Double, timeout: TimeInterval,
+                         think: Bool?, stream: Bool) throws -> URLRequest {
         var body: [String: Any] = [
             "model": model,
-            "stream": false,
+            "stream": stream,
             "messages": [
                 ["role": "system", "content": system],
                 ["role": "user", "content": user],
             ],
-            "options": ["temperature": 0, "num_predict": maxTokens],
+            "options": ["temperature": temperature, "num_predict": maxTokens],
         ]
         if let think { body["think"] = think }
         var request = URLRequest(url: root.appendingPathComponent("api/chat"))
@@ -195,7 +291,12 @@ public struct OllamaChat: ChatModel {
         request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
 
+    private func send(system: String, user: String, maxTokens: Int, timeout: TimeInterval, think: Bool?) async throws -> String {
+        let request = try request(system: system, user: user, maxTokens: maxTokens, temperature: 0, timeout: timeout,
+                                  think: think, stream: false)
         let data = try await HTTP.send(request, client: client, service: "Ollama")
         struct Response: Decodable {
             struct Message: Decodable { let content: String? }
