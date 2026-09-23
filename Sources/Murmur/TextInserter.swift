@@ -28,7 +28,9 @@ final class TextInserter {
             postCommandV()
             if let saved {
                 // Give the target app time to read the pasteboard before putting the old contents back.
-                try? await Task.sleep(nanoseconds: UInt64(max(100, config.restoreDelayMs)) * 1_000_000)
+                // This wait must run in full even if the job is cancelled (Esc): the Cmd-V is already
+                // on its way, and restoring early would paste the old clipboard instead.
+                await Self.pause(milliseconds: max(100, config.restoreDelayMs))
                 if pasteboard.changeCount == ourChange { restore(saved, to: pasteboard) }
             }
 
@@ -74,27 +76,32 @@ final class TextInserter {
 
     private func typeText(_ text: String) async {
         let source = CGEventSource(stateID: .hidSystemState)
-        let lines = text.components(separatedBy: "\n")
-        for (index, line) in lines.enumerated() {
-            if index > 0 { postKey(CGKeyCode(kVK_Return), source: source) }
-            // keyboardSetUnicodeString handles up to about 20 UTF-16 units per event.
-            var units = Array(line.utf16)[...]
-            while !units.isEmpty {
-                let chunk = Array(units.prefix(20))
-                units = units.dropFirst(chunk.count)
+        for piece in Keystrokes.pieces(for: text) {
+            switch piece {
+            case .newline:
+                postKey(CGKeyCode(kVK_Return), source: source)
+            case let .text(units):
                 for keyDown in [true, false] {
                     guard let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: keyDown) else { continue }
                     event.flags = []
-                    chunk.withUnsafeBufferPointer { buffer in
+                    units.withUnsafeBufferPointer { buffer in
                         event.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: buffer.baseAddress)
                     }
                     event.setIntegerValueField(.eventSourceUserData, value: HotkeyMonitor.syntheticEventMarker)
                     event.post(tap: .cghidEventTap)
                 }
-                // Some apps drop events that arrive too fast.
-                try? await Task.sleep(nanoseconds: 4_000_000)
             }
+            // Some apps drop events that arrive too fast. Once typing has started it finishes,
+            // even on Esc, so the text is never left half-typed.
+            await Self.pause(milliseconds: 4)
         }
+    }
+
+    /// Sleeps without being cut short by task cancellation.
+    private static func pause(milliseconds: Int) async {
+        await Task.detached {
+            try? await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
+        }.value
     }
 
     private func postKey(_ code: CGKeyCode, source: CGEventSource?) {

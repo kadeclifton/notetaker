@@ -14,8 +14,6 @@ enum Permissions {
 
     static var microphone: AVAuthorizationStatus { AVCaptureDevice.authorizationStatus(for: .audio) }
 
-    static var allGranted: Bool { accessibility && inputMonitoring && microphone == .authorized }
-
     /// Shows the system prompt that adds Murmur to the Accessibility list.
     static func promptAccessibility() {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary

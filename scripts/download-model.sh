@@ -29,5 +29,5 @@ curl -L --fail --progress-bar -o "$FILE.part" "$URL"
 mv "$FILE.part" "$FILE"
 echo "Saved $FILE"
 if [[ "$MODEL" != "small.en" ]]; then
-    echo "Set \"model\": \"$FILE\" under transcription.whisperCpp in ~/.config/murmur/config.json"
+    echo "Set \"model\": \"models/ggml-$MODEL.bin\" under transcription.whisperCpp in config.json"
 fi

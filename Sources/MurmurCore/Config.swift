@@ -28,7 +28,7 @@ public enum InsertionMethod: String, Codable, Sendable, CaseIterable {
     case type
 }
 
-public struct Config: Equatable, Sendable {
+public struct Config: Codable, Equatable, Sendable {
     /// Key to hold for push-to-talk; double-tap it for hands-free. See `HotkeySpec`.
     public var hotkey: String = "fn"
     public var transcription = TranscriptionConfig()
@@ -41,7 +41,7 @@ public struct Config: Equatable, Sendable {
     public init() {}
 }
 
-public struct TranscriptionConfig: Equatable, Sendable {
+public struct TranscriptionConfig: Codable, Equatable, Sendable {
     public var engine: TranscriptionEngine = .auto
     /// ISO-639-1 code such as "en", or "auto" to let Whisper detect it.
     public var language: String = "en"
@@ -55,17 +55,18 @@ public struct TranscriptionConfig: Equatable, Sendable {
     public init() {}
 }
 
-public struct WhisperCppConfig: Equatable, Sendable {
+public struct WhisperCppConfig: Codable, Equatable, Sendable {
     /// Path to `whisper-cli`. Empty: look in Homebrew's and the usual install locations.
     public var binary: String = ""
-    public var model: String = "~/.config/murmur/models/ggml-small.en.bin"
+    /// Relative paths are inside the settings directory (see `AppPaths`).
+    public var model: String = "models/ggml-small.en.bin"
     /// 0 picks a sensible count for this machine.
     public var threads: Int = 0
 
     public init() {}
 }
 
-public struct CleanupConfig: Equatable, Sendable {
+public struct CleanupConfig: Codable, Equatable, Sendable {
     public var enabled: Bool = true
     public var provider: CleanupProvider = .auto
     /// Empty: the provider's default (see `CleanupProvider.defaultModel`).
@@ -79,7 +80,7 @@ public struct CleanupConfig: Equatable, Sendable {
     public init() {}
 }
 
-public struct InsertionConfig: Equatable, Sendable {
+public struct InsertionConfig: Codable, Equatable, Sendable {
     public var method: InsertionMethod = .paste
     /// false: the transcript stays on the clipboard so you can paste it again.
     /// true: whatever was on the clipboard before is put back after inserting.
@@ -90,7 +91,7 @@ public struct InsertionConfig: Equatable, Sendable {
     public init() {}
 }
 
-public struct HandsFreeConfig: Equatable, Sendable {
+public struct HandsFreeConfig: Codable, Equatable, Sendable {
     /// Any recording (hands-free, or a hold whose key-up got lost) stops after this long.
     public var maxMinutes: Double = 5
     /// What to do with a recording that hit the limit: "transcribe" or "discard".
@@ -99,7 +100,7 @@ public struct HandsFreeConfig: Equatable, Sendable {
     public init() {}
 }
 
-public struct TimingConfig: Equatable, Sendable {
+public struct TimingConfig: Codable, Equatable, Sendable {
     /// A press shorter than this is a tap, not a hold.
     public var tapMaxMs: Int = 250
     /// A second press within this long after a tap starts hands-free.
@@ -111,155 +112,48 @@ public struct TimingConfig: Equatable, Sendable {
     public init() {}
 }
 
-public struct FeedbackConfig: Equatable, Sendable {
+public struct FeedbackConfig: Codable, Equatable, Sendable {
     public var sounds: Bool = true
     public var pill: Bool = true
 
     public init() {}
 }
 
-// MARK: - Decoding with defaults
-
-// Every key is optional in the settings file; anything missing keeps its default.
-
-extension Config: Codable {
-    enum CodingKeys: String, CodingKey {
-        case hotkey, transcription, cleanup, insertion, handsFree, timing, feedback
-    }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        var d = Config()
-        d.hotkey = try c.decodeIfPresent(String.self, forKey: .hotkey) ?? d.hotkey
-        d.transcription = try c.decodeIfPresent(TranscriptionConfig.self, forKey: .transcription) ?? d.transcription
-        d.cleanup = try c.decodeIfPresent(CleanupConfig.self, forKey: .cleanup) ?? d.cleanup
-        d.insertion = try c.decodeIfPresent(InsertionConfig.self, forKey: .insertion) ?? d.insertion
-        d.handsFree = try c.decodeIfPresent(HandsFreeConfig.self, forKey: .handsFree) ?? d.handsFree
-        d.timing = try c.decodeIfPresent(TimingConfig.self, forKey: .timing) ?? d.timing
-        d.feedback = try c.decodeIfPresent(FeedbackConfig.self, forKey: .feedback) ?? d.feedback
-        self = d
-    }
-}
-
-extension TranscriptionConfig: Codable {
-    enum CodingKeys: String, CodingKey {
-        case engine, language, vocabulary, whisperCpp, groqModel, openaiModel, timeoutSeconds
-    }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        var d = TranscriptionConfig()
-        d.engine = try c.decodeIfPresent(TranscriptionEngine.self, forKey: .engine) ?? d.engine
-        d.language = try c.decodeIfPresent(String.self, forKey: .language) ?? d.language
-        d.vocabulary = try c.decodeIfPresent([String].self, forKey: .vocabulary) ?? d.vocabulary
-        d.whisperCpp = try c.decodeIfPresent(WhisperCppConfig.self, forKey: .whisperCpp) ?? d.whisperCpp
-        d.groqModel = try c.decodeIfPresent(String.self, forKey: .groqModel) ?? d.groqModel
-        d.openaiModel = try c.decodeIfPresent(String.self, forKey: .openaiModel) ?? d.openaiModel
-        d.timeoutSeconds = try c.decodeIfPresent(Double.self, forKey: .timeoutSeconds) ?? d.timeoutSeconds
-        self = d
-    }
-}
-
-extension WhisperCppConfig: Codable {
-    enum CodingKeys: String, CodingKey { case binary, model, threads }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        var d = WhisperCppConfig()
-        d.binary = try c.decodeIfPresent(String.self, forKey: .binary) ?? d.binary
-        d.model = try c.decodeIfPresent(String.self, forKey: .model) ?? d.model
-        d.threads = try c.decodeIfPresent(Int.self, forKey: .threads) ?? d.threads
-        self = d
-    }
-}
-
-extension CleanupConfig: Codable {
-    enum CodingKeys: String, CodingKey {
-        case enabled, provider, model, baseURL, timeoutSeconds, extraInstructions
-    }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        var d = CleanupConfig()
-        d.enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? d.enabled
-        d.provider = try c.decodeIfPresent(CleanupProvider.self, forKey: .provider) ?? d.provider
-        d.model = try c.decodeIfPresent(String.self, forKey: .model) ?? d.model
-        d.baseURL = try c.decodeIfPresent(String.self, forKey: .baseURL) ?? d.baseURL
-        d.timeoutSeconds = try c.decodeIfPresent(Double.self, forKey: .timeoutSeconds) ?? d.timeoutSeconds
-        d.extraInstructions = try c.decodeIfPresent(String.self, forKey: .extraInstructions) ?? d.extraInstructions
-        self = d
-    }
-}
-
-extension InsertionConfig: Codable {
-    enum CodingKeys: String, CodingKey { case method, restoreClipboard, restoreDelayMs }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        var d = InsertionConfig()
-        d.method = try c.decodeIfPresent(InsertionMethod.self, forKey: .method) ?? d.method
-        d.restoreClipboard = try c.decodeIfPresent(Bool.self, forKey: .restoreClipboard) ?? d.restoreClipboard
-        d.restoreDelayMs = try c.decodeIfPresent(Int.self, forKey: .restoreDelayMs) ?? d.restoreDelayMs
-        self = d
-    }
-}
-
-extension HandsFreeConfig: Codable {
-    enum CodingKeys: String, CodingKey { case maxMinutes, onTimeLimit }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        var d = HandsFreeConfig()
-        d.maxMinutes = try c.decodeIfPresent(Double.self, forKey: .maxMinutes) ?? d.maxMinutes
-        d.onTimeLimit = try c.decodeIfPresent(String.self, forKey: .onTimeLimit) ?? d.onTimeLimit
-        self = d
-    }
-}
-
-extension TimingConfig: Codable {
-    enum CodingKeys: String, CodingKey { case tapMaxMs, doubleTapWindowMs, chordGuardMs }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        var d = TimingConfig()
-        d.tapMaxMs = try c.decodeIfPresent(Int.self, forKey: .tapMaxMs) ?? d.tapMaxMs
-        d.doubleTapWindowMs = try c.decodeIfPresent(Int.self, forKey: .doubleTapWindowMs) ?? d.doubleTapWindowMs
-        d.chordGuardMs = try c.decodeIfPresent(Int.self, forKey: .chordGuardMs) ?? d.chordGuardMs
-        self = d
-    }
-}
-
-extension FeedbackConfig: Codable {
-    enum CodingKeys: String, CodingKey { case sounds, pill }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        var d = FeedbackConfig()
-        d.sounds = try c.decodeIfPresent(Bool.self, forKey: .sounds) ?? d.sounds
-        d.pill = try c.decodeIfPresent(Bool.self, forKey: .pill) ?? d.pill
-        self = d
-    }
-}
-
 // MARK: - Loading
 
 public enum ConfigError: Error, CustomStringConvertible {
     case invalid(path: String, underlying: Error)
+    case notAnObject
 
     public var description: String {
         switch self {
         case let .invalid(path, underlying):
             return "Could not read \(path): \(underlying)"
+        case .notAnObject:
+            return "The settings file must contain a JSON object ({ ... })."
         }
     }
 }
 
 extension Config {
     /// Parses the settings file. `//` and `/* */` comments and trailing commas are allowed.
+    /// Any key missing from the file keeps its default: the file is merged over the defaults before decoding.
     public static func parse(_ text: String) throws -> Config {
         let json = JSONC.strip(text)
         if json.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return Config() }
-        return try JSONDecoder().decode(Config.self, from: Data(json.utf8))
+        guard let user = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else {
+            throw ConfigError.notAnObject
+        }
+        let defaults = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Config())) as? [String: Any] ?? [:]
+        let merged = try JSONSerialization.data(withJSONObject: deepMerge(defaults, user))
+        return try JSONDecoder().decode(Config.self, from: merged)
+    }
+
+    static func deepMerge(_ base: [String: Any], _ overlay: [String: Any]) -> [String: Any] {
+        base.merging(overlay) { old, new in
+            if let old = old as? [String: Any], let new = new as? [String: Any] { return deepMerge(old, new) }
+            return new
+        }
     }
 
     /// Loads the settings file, writing the documented default one first if it does not exist.
@@ -300,7 +194,8 @@ extension Config {
           // Empty: find whisper-cli in /opt/homebrew/bin, /usr/local/bin, and friends.
           "binary": "",
           // scripts/download-model.sh small.en (or medium.en) puts it here.
-          "model": "~/.config/murmur/models/ggml-small.en.bin",
+          // Relative paths are inside this settings folder.
+          "model": "models/ggml-small.en.bin",
           // 0: pick automatically.
           "threads": 0
         },
@@ -430,6 +325,12 @@ public enum AppPaths {
 
     public static var configFile: URL { directory.appendingPathComponent("config.json") }
     public static var envFile: URL { directory.appendingPathComponent(".env") }
+
+    /// Expands `~`, and treats relative paths as relative to `directory`.
+    public static func resolve(_ path: String) -> String {
+        let expanded = expandTilde(path)
+        return expanded.hasPrefix("/") ? expanded : directory.appendingPathComponent(expanded).path
+    }
 
     public static func expandTilde(_ path: String) -> String {
         guard path == "~" || path.hasPrefix("~/") else { return path }

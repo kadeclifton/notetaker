@@ -52,8 +52,12 @@ public enum CleanupPrompt {
         if text.hasSuffix("</transcript>") { text.removeLast("</transcript>".count) }
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let rawTrimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Strip quotes only when they wrap the whole reply: exactly one opening and one closing quote.
         for (open, close) in [("\"", "\""), ("“", "”")] where text.count >= 2 && text.hasPrefix(open) && text.hasSuffix(close) && !rawTrimmed.hasPrefix(open) {
-            text = String(text.dropFirst(open.count).dropLast(close.count))
+            let quoteCount = open == close
+                ? text.components(separatedBy: open).count - 1
+                : text.components(separatedBy: open).count + text.components(separatedBy: close).count - 2
+            if quoteCount == 2 { text = String(text.dropFirst(open.count).dropLast(close.count)) }
         }
         return text
     }
@@ -71,8 +75,8 @@ public enum CleanupGuard {
         let rawWords = wordCount(raw)
         let cleanedWords = wordCount(cleaned)
         if cleaned.isEmpty {
-            // Fine if the input was only filler ("um, uh"); suspicious if it had real content.
-            return rawWords <= 4 ? .accept("") : .reject(reason: "empty output")
+            // Right when the dictation was only filler ("um, uh"); otherwise the model failed or refused.
+            return isOnlyFiller(raw) ? .accept("") : .reject(reason: "empty output")
         }
         if cleanedWords > rawWords * 3 / 2 + 8 {
             return .reject(reason: "output much longer than the dictation")
@@ -81,6 +85,14 @@ public enum CleanupGuard {
             return .reject(reason: "output less than half the dictation")
         }
         return .accept(cleaned)
+    }
+
+    static let fillerWords: Set<String> = ["um", "umm", "uh", "uhm", "uhh", "er", "erm", "ah", "hmm", "hm", "mm", "mhm", "oh", "like", "so"]
+
+    static func isOnlyFiller(_ text: String) -> Bool {
+        text.lowercased()
+            .split(whereSeparator: { !$0.isLetter })
+            .allSatisfy { fillerWords.contains(String($0)) }
     }
 
     static func wordCount(_ text: String) -> Int {
@@ -157,7 +169,7 @@ public struct AnthropicCleaner: TextCleaner {
     public var client: HTTPClient
 
     public init(apiKey: String, model: String, timeout: TimeInterval = 10, extraInstructions: String = "",
-                baseURL: URL = URL(string: "https://api.anthropic.com/v1")!, client: HTTPClient = URLSessionHTTPClient()) {
+                baseURL: URL = HostedAPI.anthropic.baseURL, client: HTTPClient = URLSessionHTTPClient()) {
         self.apiKey = apiKey
         self.model = model
         self.timeout = timeout

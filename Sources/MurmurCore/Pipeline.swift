@@ -1,22 +1,44 @@
 import Foundation
 
-public enum Providers {
-    public static let groqBaseURL = URL(string: "https://api.groq.com/openai/v1")!
-    public static let openAIBaseURL = URL(string: "https://api.openai.com/v1")!
+/// A hosted API: where it lives and which `.env` key unlocks it.
+public struct HostedAPI: Sendable, Equatable {
+    public let name: String
+    public let baseURL: URL
+    public let keyName: String
 
-    public static func defaultCleanupModel(for provider: CleanupProvider) -> String {
-        switch provider {
+    public static let groq = HostedAPI(name: "Groq", baseURL: URL(string: "https://api.groq.com/openai/v1")!, keyName: "GROQ_API_KEY")
+    public static let openAI = HostedAPI(name: "OpenAI", baseURL: URL(string: "https://api.openai.com/v1")!, keyName: "OPENAI_API_KEY")
+    public static let anthropic = HostedAPI(name: "Anthropic", baseURL: URL(string: "https://api.anthropic.com/v1")!, keyName: "ANTHROPIC_API_KEY")
+
+    public func key(in env: [String: String]) -> String? {
+        guard let value = env[keyName]?.trimmingCharacters(in: .whitespaces), !value.isEmpty else { return nil }
+        return value
+    }
+
+    func requireKey(in env: [String: String]) throws -> String {
+        guard let key = key(in: env) else { throw SetupError.missingKey(keyName) }
+        return key
+    }
+}
+
+extension CleanupProvider {
+    public var hostedAPI: HostedAPI? {
+        switch self {
+        case .groq: return .groq
+        case .openai: return .openAI
+        case .anthropic: return .anthropic
+        case .auto, .custom: return nil
+        }
+    }
+
+    public var defaultModel: String {
+        switch self {
         case .groq: return "llama-3.3-70b-versatile"
         case .openai: return "gpt-4.1-mini"
         case .anthropic: return "claude-haiku-4-5"
         case .custom: return "llama3.2"
         case .auto: return ""
         }
-    }
-
-    static func key(_ name: String, in env: [String: String]) -> String? {
-        guard let value = env[name]?.trimmingCharacters(in: .whitespaces), !value.isEmpty else { return nil }
-        return value
     }
 }
 
@@ -38,32 +60,22 @@ extension Config {
     /// Builds the transcriber the settings ask for, using API keys from `env`.
     public func makeTranscriber(env: [String: String], client: HTTPClient = URLSessionHTTPClient()) throws -> Transcriber {
         let t = transcription
-        var engine = t.engine
-        if engine == .auto {
-            if Providers.key("GROQ_API_KEY", in: env) != nil {
-                engine = .groq
-            } else if Providers.key("OPENAI_API_KEY", in: env) != nil {
-                engine = .openai
-            } else {
-                engine = .local
-            }
+        let api: HostedAPI?
+        switch t.engine {
+        case .auto: api = [HostedAPI.groq, .openAI].first { $0.key(in: env) != nil }
+        case .groq: api = .groq
+        case .openai: api = .openAI
+        case .local: api = nil
         }
-        switch engine {
-        case .groq:
-            guard let key = Providers.key("GROQ_API_KEY", in: env) else { throw SetupError.missingKey("GROQ_API_KEY") }
-            return WhisperAPITranscriber(service: "Groq", baseURL: Providers.groqBaseURL, apiKey: key,
-                                         model: t.groqModel, timeout: t.timeoutSeconds, client: client)
-        case .openai:
-            guard let key = Providers.key("OPENAI_API_KEY", in: env) else { throw SetupError.missingKey("OPENAI_API_KEY") }
-            return WhisperAPITranscriber(service: "OpenAI", baseURL: Providers.openAIBaseURL, apiKey: key,
-                                         model: t.openaiModel, timeout: t.timeoutSeconds, client: client)
-        case .local, .auto:
-            guard let binary = WhisperCppTranscriber.locateBinary(configured: t.whisperCpp.binary, environment: env) else {
-                throw TranscriptionError.whisperNotFound
-            }
-            return WhisperCppTranscriber(binary: binary, model: AppPaths.expandTilde(t.whisperCpp.model),
-                                         threads: t.whisperCpp.threads)
+        if let api {
+            return WhisperAPITranscriber(service: api.name, baseURL: api.baseURL, apiKey: try api.requireKey(in: env),
+                                         model: api == .groq ? t.groqModel : t.openaiModel,
+                                         timeout: t.timeoutSeconds, client: client)
         }
+        guard let binary = WhisperCppTranscriber.locateBinary(configured: t.whisperCpp.binary, environment: env) else {
+            throw TranscriptionError.whisperNotFound
+        }
+        return WhisperCppTranscriber(binary: binary, model: AppPaths.resolve(t.whisperCpp.model), threads: t.whisperCpp.threads)
     }
 
     /// Builds the cleanup LLM, or nil when cleanup is off or `auto` finds no key.
@@ -72,39 +84,27 @@ extension Config {
         guard c.enabled else { return nil }
         var provider = c.provider
         if provider == .auto {
-            if Providers.key("GROQ_API_KEY", in: env) != nil {
-                provider = .groq
-            } else if Providers.key("OPENAI_API_KEY", in: env) != nil {
-                provider = .openai
-            } else if Providers.key("ANTHROPIC_API_KEY", in: env) != nil {
-                provider = .anthropic
-            } else {
-                return nil
-            }
+            let candidates: [CleanupProvider] = [.groq, .openai, .anthropic]
+            guard let found = candidates.first(where: { $0.hostedAPI?.key(in: env) != nil }) else { return nil }
+            provider = found
         }
-        let model = c.model.isEmpty ? Providers.defaultCleanupModel(for: provider) : c.model
-        switch provider {
-        case .groq:
-            guard let key = Providers.key("GROQ_API_KEY", in: env) else { throw SetupError.missingKey("GROQ_API_KEY") }
-            return ChatCompletionsCleaner(service: "Groq", baseURL: Providers.groqBaseURL, apiKey: key, model: model,
-                                          timeout: c.timeoutSeconds, extraInstructions: c.extraInstructions, client: client)
-        case .openai:
-            guard let key = Providers.key("OPENAI_API_KEY", in: env) else { throw SetupError.missingKey("OPENAI_API_KEY") }
-            return ChatCompletionsCleaner(service: "OpenAI", baseURL: Providers.openAIBaseURL, apiKey: key, model: model,
-                                          timeout: c.timeoutSeconds, extraInstructions: c.extraInstructions, client: client)
-        case .anthropic:
-            guard let key = Providers.key("ANTHROPIC_API_KEY", in: env) else { throw SetupError.missingKey("ANTHROPIC_API_KEY") }
-            return AnthropicCleaner(apiKey: key, model: model, timeout: c.timeoutSeconds,
-                                    extraInstructions: c.extraInstructions, client: client)
-        case .custom:
+        let model = c.model.isEmpty ? provider.defaultModel : c.model
+
+        if provider == .custom {
             let base = c.baseURL.isEmpty ? "http://localhost:11434/v1" : c.baseURL
             guard let url = URL(string: base), url.scheme != nil else { throw SetupError.badBaseURL(base) }
-            return ChatCompletionsCleaner(service: url.host ?? "custom", baseURL: url,
-                                          apiKey: Providers.key("CLEANUP_API_KEY", in: env), model: model,
+            let key = env["CLEANUP_API_KEY"].flatMap { $0.isEmpty ? nil : $0 }
+            return ChatCompletionsCleaner(service: url.host ?? "custom", baseURL: url, apiKey: key, model: model,
                                           timeout: c.timeoutSeconds, extraInstructions: c.extraInstructions, client: client)
-        case .auto:
-            return nil
         }
+        guard let api = provider.hostedAPI else { return nil }
+        let key = try api.requireKey(in: env)
+        if api == .anthropic {
+            return AnthropicCleaner(apiKey: key, model: model, timeout: c.timeoutSeconds,
+                                    extraInstructions: c.extraInstructions, baseURL: api.baseURL, client: client)
+        }
+        return ChatCompletionsCleaner(service: api.name, baseURL: api.baseURL, apiKey: key, model: model,
+                                      timeout: c.timeoutSeconds, extraInstructions: c.extraInstructions, client: client)
     }
 }
 

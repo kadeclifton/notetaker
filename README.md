@@ -120,7 +120,7 @@ back to its default. `MURMUR_HOME` moves the whole directory.
     "vocabulary": [],        // e.g. ["Kubernetes", "Anthropic"], passed to Whisper as a hint
     "whisperCpp": {
       "binary": "",          // empty: finds whisper-cli in Homebrew's paths
-      "model": "~/.config/murmur/models/ggml-small.en.bin",
+      "model": "models/ggml-small.en.bin",   // relative to ~/.config/murmur
       "threads": 0
     },
     "groqModel": "whisper-large-v3-turbo",

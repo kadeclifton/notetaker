@@ -116,3 +116,29 @@ final class WhisperCppTests: XCTestCase {
         XCTAssertEqual(WhisperCppTranscriber.locateBinary(configured: "", environment: ["PATH": "/nowhere:\(dir.path)"]), binary)
     }
 }
+
+final class KeystrokesTests: XCTestCase {
+    func testChunksNeverSplitACharacter() {
+        let text = String(repeating: "a", count: 19) + "😀" + "b"
+        let pieces = Keystrokes.pieces(for: text)
+        XCTAssertEqual(pieces, [
+            .text(Array(String(repeating: "a", count: 19).utf16)),
+            .text(Array("😀b".utf16)),
+        ])
+        for case let .text(units) in pieces {
+            XCTAssertNotNil(String(utf16CodeUnits: units, count: units.count).unicodeScalars.first)
+            XCTAssertLessThanOrEqual(units.count, 20)
+        }
+    }
+
+    func testNewlinesBecomeReturnPresses() {
+        XCTAssertEqual(Keystrokes.pieces(for: "hi\n\nyou"), [.text(Array("hi".utf16)), .newline, .newline, .text(Array("you".utf16))])
+        XCTAssertEqual(Keystrokes.pieces(for: "a\r\nb"), [.text([97]), .newline, .text([98])])
+        XCTAssertEqual(Keystrokes.pieces(for: ""), [])
+    }
+
+    func testOversizedCharacterGetsItsOwnChunk() {
+        let family = "👨‍👩‍👧‍👦👨‍👩‍👧‍👦" // 11 UTF-16 units each
+        XCTAssertEqual(Keystrokes.pieces(for: family).count, 2)
+    }
+}

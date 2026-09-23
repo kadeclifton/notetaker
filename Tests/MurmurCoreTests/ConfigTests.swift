@@ -35,6 +35,20 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(JSONC.strip(#"{"a": "say \"//hi\"", } // x"#), #"{"a": "say \"//hi\"" } "#)
     }
 
+    func testNestedKeysMergeOverDefaults() throws {
+        let config = try Config.parse(#"{ "transcription": { "whisperCpp": { "threads": 4 } }, "feedback": { "sounds": false } }"#)
+        XCTAssertEqual(config.transcription.whisperCpp.threads, 4)
+        XCTAssertEqual(config.transcription.whisperCpp.model, WhisperCppConfig().model)
+        XCTAssertEqual(config.transcription.engine, .auto)
+        XCTAssertFalse(config.feedback.sounds)
+        XCTAssertTrue(config.feedback.pill)
+    }
+
+    func testWrongTypesAreErrors() {
+        XCTAssertThrowsError(try Config.parse(#"{ "feedback": { "sounds": "yes" } }"#))
+        XCTAssertThrowsError(try Config.parse("[1, 2]")) { XCTAssertTrue($0 is ConfigError) }
+    }
+
     func testUnknownEngineIsAnError() {
         XCTAssertThrowsError(try Config.parse(#"{ "transcription": { "engine": "cloud" } }"#))
     }

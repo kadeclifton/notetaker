@@ -62,6 +62,14 @@ final class ProviderSelectionTests: XCTestCase {
         XCTAssertEqual(try config.makeTranscriber(env: [:]).name, "whisper.cpp (ggml-medium.en)")
     }
 
+    func testRelativeModelPathIsInsideTheSettingsDirectory() throws {
+        var config = Config()
+        config.transcription.engine = .local
+        config.transcription.whisperCpp.binary = "/bin/sh"
+        let transcriber = try XCTUnwrap(try config.makeTranscriber(env: [:]) as? WhisperCppTranscriber)
+        XCTAssertEqual(transcriber.model, AppPaths.directory.appendingPathComponent("models/ggml-small.en.bin").path)
+    }
+
     func testLocalIgnoresKeys() throws {
         var config = Config()
         config.transcription.engine = .local
@@ -93,7 +101,7 @@ final class ProviderSelectionTests: XCTestCase {
 final class APIClientTests: XCTestCase {
     func testWhisperAPIRequest() async throws {
         let client = FakeHTTPClient { _ in (200, #"{"text":" hello there "}"#) }
-        let transcriber = WhisperAPITranscriber(service: "Groq", baseURL: Providers.groqBaseURL, apiKey: "gsk",
+        let transcriber = WhisperAPITranscriber(service: "Groq", baseURL: HostedAPI.groq.baseURL, apiKey: "gsk",
                                                 model: "whisper-large-v3-turbo", client: client)
         let text = try await transcriber.transcribe(wav: Data([1, 2, 3]), language: "en", prompt: "Kubernetes.")
         XCTAssertEqual(text, " hello there ")
@@ -110,7 +118,7 @@ final class APIClientTests: XCTestCase {
 
     func testAPIErrorsCarryTheMessage() async {
         let client = FakeHTTPClient { _ in (401, #"{"error":{"message":"Invalid API Key"}}"#) }
-        let transcriber = WhisperAPITranscriber(service: "Groq", baseURL: Providers.groqBaseURL, apiKey: "bad",
+        let transcriber = WhisperAPITranscriber(service: "Groq", baseURL: HostedAPI.groq.baseURL, apiKey: "bad",
                                                 model: "m", client: client)
         do {
             _ = try await transcriber.transcribe(wav: Data(), language: nil, prompt: nil)
@@ -125,7 +133,7 @@ final class APIClientTests: XCTestCase {
 
     func testChatCompletionsRequest() async throws {
         let client = FakeHTTPClient { _ in (200, #"{"choices":[{"message":{"role":"assistant","content":"Hello, world."}}]}"#) }
-        let cleaner = ChatCompletionsCleaner(service: "OpenAI", baseURL: Providers.openAIBaseURL, apiKey: "sk",
+        let cleaner = ChatCompletionsCleaner(service: "OpenAI", baseURL: HostedAPI.openAI.baseURL, apiKey: "sk",
                                              model: "gpt-4.1-mini", extraInstructions: "Use British spelling.", client: client)
         let output = try await cleaner.clean("um hello world", context: CleanupContext(appName: "Slack"))
         XCTAssertEqual(output, "Hello, world.")
@@ -238,8 +246,10 @@ final class CleanupGuardTests: XCTestCase {
     }
 
     func testEmptyOutput() {
-        XCTAssertEqual(CleanupGuard.check(raw: "um uh", cleaned: ""), .accept(""))
+        XCTAssertEqual(CleanupGuard.check(raw: "Um, uh... hmm.", cleaned: ""), .accept(""))
         XCTAssertEqual(CleanupGuard.check(raw: "this is a real sentence with content", cleaned: ""), .reject(reason: "empty output"))
+        XCTAssertEqual(CleanupGuard.check(raw: "Sounds good to me.", cleaned: ""), .reject(reason: "empty output"),
+                       "a short real dictation is not dropped when the model returns nothing")
     }
 
     func testRejectsSummary() {
@@ -253,5 +263,9 @@ final class CleanupGuardTests: XCTestCase {
         XCTAssertEqual(CleanupPrompt.unwrap("\"Hi.\"", raw: "hi"), "Hi.")
         XCTAssertEqual(CleanupPrompt.unwrap("\"Hi,\" she said.", raw: "hi she said"), "\"Hi,\" she said.")
         XCTAssertEqual(CleanupPrompt.unwrap("\"quoted\"", raw: "\"quoted\""), "\"quoted\"")
+        XCTAssertEqual(CleanupPrompt.unwrap("\"Yes\" and \"no\"", raw: "yes and no"), "\"Yes\" and \"no\"",
+                       "two quoted phrases are not a wrapper")
+        XCTAssertEqual(CleanupPrompt.unwrap("“Hi.”", raw: "hi"), "Hi.")
+        XCTAssertEqual(CleanupPrompt.unwrap("“A” or “B”", raw: "a or b"), "“A” or “B”")
     }
 }

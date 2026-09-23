@@ -18,16 +18,46 @@ enum RecorderError: Error, CustomStringConvertible {
 
 /// Captures the default input device as 16 kHz mono Float samples.
 /// A fresh AVAudioEngine per recording picks up whatever mic is current (AirPods, USB, built-in).
-final class AudioRecorder {
-    private var engine: AVAudioEngine?
+///
+/// Starting an engine can take hundreds of milliseconds on Bluetooth or USB mics, so start and
+/// stop run on a private serial queue (in the order they were called) and report back on main.
+final class AudioRecorder: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "Murmur.AudioRecorder", qos: .userInitiated)
+    private var engine: AVAudioEngine? // only touched on `queue`
     private let buffer = SampleBuffer()
-
-    var isRecording: Bool { engine != nil }
 
     /// Recent loudness, roughly 0...1, for the pill's level meter.
     var level: Float { buffer.level }
 
-    func start() throws {
+    func start(completion: @escaping @MainActor (Error?) -> Void) {
+        queue.async { [self] in
+            // Reset on the queue, after any earlier stop() has drained its samples.
+            buffer.reset()
+            let error: Error?
+            do {
+                try startOnQueue()
+                error = nil
+            } catch let failure {
+                error = failure
+            }
+            DispatchQueue.main.async { MainActor.assumeIsolated { completion(error) } }
+        }
+    }
+
+    /// Stops the microphone and hands back everything recorded since `start`.
+    func stop(completion: @escaping @MainActor ([Float]) -> Void) {
+        queue.async { [self] in
+            if let engine {
+                engine.inputNode.removeTap(onBus: 0)
+                engine.stop()
+                self.engine = nil
+            }
+            let samples = buffer.drain()
+            DispatchQueue.main.async { MainActor.assumeIsolated { completion(samples) } }
+        }
+    }
+
+    private func startOnQueue() throws {
         guard engine == nil else { return }
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
             throw RecorderError.microphoneDenied
@@ -45,7 +75,6 @@ final class AudioRecorder {
             throw RecorderError.converterUnavailable
         }
 
-        buffer.reset()
         let sink = buffer
         input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { pcm, _ in
             // Audio thread. Convert this chunk and append it.
@@ -75,15 +104,6 @@ final class AudioRecorder {
             throw error
         }
         self.engine = engine
-    }
-
-    /// Stops the microphone and returns everything recorded since `start()`.
-    func stop() -> [Float] {
-        guard let engine else { return [] }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        self.engine = nil
-        return buffer.drain()
     }
 }
 

@@ -14,8 +14,16 @@ final class DictationController {
     private let pill = PillController()
     private var tickTimer: Timer?
     private var tapRetryTimer: Timer?
-    private var jobs: [UUID: Task<Void, Never>] = [:]
     private var hotkeySpec: HotkeySpec = .modifier(.fn)
+
+    /// Transcriptions in flight. Each waits for the one before it before inserting, so text
+    /// lands in the order it was dictated even when a later, shorter clip finishes first.
+    private var jobs: [UUID: Task<Void, Never>] = [:]
+    private var lastJob: Task<Void, Never>?
+
+    /// Sound and pill wait until a press has lasted longer than a tap, so fn+arrow and
+    /// single taps stay silent. The microphone itself starts at once so no word is clipped.
+    private var recordingAnnounced = false
 
     /// Problems worth showing in the menu (bad settings, missing model, last failure).
     private(set) var problems: [String] = []
@@ -36,12 +44,11 @@ final class DictationController {
     }
 
     var isRecording: Bool { machine.isRecording }
-    var isProcessing: Bool { !jobs.isEmpty }
     var hotkeyIsListening: Bool { hotkeys.isRunning }
     var hotkeyDescription: String { hotkeySpec.displayName }
 
     func start() {
-        hotkeys.onEvent = { [weak self] event in self?.handle(event) }
+        hotkeys.onInput = { [weak self] input, time in self?.handle(input, at: time) }
         if Permissions.microphone == .notDetermined {
             Permissions.requestMicrophone { _ in
                 Task { @MainActor [weak self] in self?.onChange?() }
@@ -108,16 +115,9 @@ final class DictationController {
 
     // MARK: Hotkey handling
 
-    private func handle(_ event: HotkeyEvent) {
+    private func handle(_ input: DictationInput, at time: TimeInterval) {
         guard enabled else { return }
-        let input: DictationInput
-        switch event {
-        case .hotkeyDown: input = .hotkeyDown
-        case .hotkeyUp: input = .hotkeyUp
-        case .otherKeyDown: input = .otherKeyDown
-        case .escape: input = .escape
-        }
-        run(machine.handle(input, at: now))
+        run(machine.handle(input, at: time))
     }
 
     private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
@@ -125,11 +125,10 @@ final class DictationController {
     private func run(_ actions: [DictationAction]) {
         for action in actions {
             switch action {
-            case let .startRecording(mode):
-                startRecording(mode)
-            case let .modeChanged(mode):
-                play("Pop")
-                showRecordingPill(mode)
+            case .startRecording:
+                startRecording()
+            case .modeChanged:
+                announceRecording()
             case let .finishRecording(reason):
                 finishRecording(reason)
             case let .discardRecording(reason):
@@ -141,17 +140,17 @@ final class DictationController {
         onChange?()
     }
 
-    private func startRecording(_ mode: RecordingMode) {
-        do {
-            try recorder.start()
-        } catch {
-            machine.reset()
-            fail("\(error)")
+    private func startRecording() {
+        recordingAnnounced = false
+        recorder.start { [weak self] error in
+            guard let self, let error else { return }
+            if self.machine.isRecording {
+                self.machine.reset()
+                self.stopTicking()
+            }
+            self.fail("\(error)")
             if Permissions.microphone == .denied { Permissions.open(.microphone) }
-            return
         }
-        play("Tink")
-        showRecordingPill(mode)
         tickTimer?.invalidate()
         tickTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.tick() }
@@ -165,6 +164,10 @@ final class DictationController {
             run(actions)
             return
         }
+        if !recordingAnnounced, case .holding = machine.state, machine.elapsed(at: now) >= machine.timing.tapMax {
+            announceRecording()
+        }
+        guard recordingAnnounced else { return }
         pill.model.elapsed = machine.elapsed(at: now)
         pill.model.remaining = machine.remaining(at: now)
         pill.model.level = recorder.level
@@ -176,6 +179,14 @@ final class DictationController {
         tickTimer = nil
     }
 
+    /// First sign the user gets that we are recording: a sound and the pill.
+    private func announceRecording() {
+        guard let mode = machine.mode else { return }
+        if !recordingAnnounced { play("Tink") }
+        recordingAnnounced = true
+        showRecordingPill(mode)
+    }
+
     private func showRecordingPill(_ mode: RecordingMode) {
         guard config.feedback.pill else { return }
         pill.model.elapsed = machine.elapsed(at: now)
@@ -184,23 +195,33 @@ final class DictationController {
     }
 
     private func discardRecording(_ reason: DiscardReason) {
-        _ = recorder.stop()
+        let wasAnnounced = recordingAnnounced
+        recordingAnnounced = false
         stopTicking()
+        recorder.stop { _ in }
         switch reason {
-        case .escape:
+        case .escape where wasAnnounced:
             play("Funk")
             flash("Cancelled")
         case .timeLimit:
             flash("Stopped at \(Int(config.handsFree.maxMinutes)) min limit, discarded")
-        case .singleTap, .chord:
+        case .escape, .singleTap, .chord:
             refreshPill()
         }
     }
 
     private func finishRecording(_ reason: FinishReason) {
-        let samples = recorder.stop()
+        recordingAnnounced = false
         stopTicking()
         play("Pop")
+        let context = CleanupContext(appName: NSWorkspace.shared.frontmostApplication?.localizedName)
+        recorder.stop { [weak self] samples in
+            self?.transcribe(samples, reason: reason, context: context)
+        }
+        if config.feedback.pill { pill.show(.processing) }
+    }
+
+    private func transcribe(_ samples: [Float], reason: FinishReason, context: CleanupContext) {
         if Audio.duration(of: samples) < 0.2 {
             refreshPill()
             return
@@ -216,14 +237,16 @@ final class DictationController {
             fail("\(error)")
             return
         }
-        let context = CleanupContext(appName: NSWorkspace.shared.frontmostApplication?.localizedName)
         let insertion = config.insertion
         let limitNote = reason == .timeLimit ? "Hands-free stopped at the time limit" : nil
+        let previous = lastJob
 
         let id = UUID()
-        jobs[id] = Task { [weak self] in
+        let job = Task { [weak self] in
             do {
                 let result = try await pipeline.run(samples: samples, context: context)
+                // Insert in dictation order: wait for the job before this one to finish.
+                await previous?.value
                 try Task.checkCancellation()
                 guard let self else { return }
                 if let problem = result.cleanupProblem { self.lastFailure = problem }
@@ -235,19 +258,19 @@ final class DictationController {
                 self.finishJob(id, message: limitNote)
             } catch {
                 guard let self else { return }
-                if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
-                    self.finishJob(id, message: nil)
-                } else {
-                    self.finishJob(id, message: nil)
-                    self.fail("\(error)")
-                }
+                self.finishJob(id, message: nil)
+                let cancelled = Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled
+                if !cancelled { self.fail("\(error)") }
             }
         }
+        jobs[id] = job
+        lastJob = job
         refreshPill()
     }
 
     private func finishJob(_ id: UUID, message: String?) {
         jobs[id] = nil
+        if jobs.isEmpty { lastJob = nil }
         if let message { flash(message) } else { refreshPill() }
         onChange?()
     }
@@ -256,6 +279,7 @@ final class DictationController {
         guard !jobs.isEmpty else { return }
         for job in jobs.values { job.cancel() }
         jobs.removeAll()
+        lastJob = nil
         if showMessage {
             play("Funk")
             flash("Cancelled")
@@ -264,9 +288,10 @@ final class DictationController {
 
     private func cancelEverything() {
         if machine.isRecording {
-            _ = recorder.stop()
+            recorder.stop { _ in }
             machine.reset()
         }
+        recordingAnnounced = false
         stopTicking()
         cancelJobs(showMessage: false)
         pill.hide()
@@ -278,7 +303,7 @@ final class DictationController {
     private func refreshPill() {
         guard config.feedback.pill else { pill.hide(); return }
         if pill.isFlashing { return }
-        if let mode = machine.mode {
+        if recordingAnnounced, let mode = machine.mode {
             showRecordingPill(mode)
         } else if !jobs.isEmpty {
             pill.show(.processing)
