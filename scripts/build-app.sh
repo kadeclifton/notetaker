@@ -69,8 +69,19 @@ fi
 if [[ "$IDENTITY" == "Developer ID Application:"* ]]; then
     # What notarization requires: hardened runtime, a secure timestamp, and the entitlements
     # the hardened runtime would otherwise withhold (the microphone).
-    codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" --options runtime --timestamp \
-        --entitlements "$ROOT/Resources/Murmur.entitlements" "$APP"
+    # The secure timestamp comes from Apple's server, which now and then does not answer.
+    for attempt in 1 2 3 4; do
+        if codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" --options runtime --timestamp \
+                --entitlements "$ROOT/Resources/Murmur.entitlements" "$APP"; then
+            break
+        fi
+        if [[ $attempt == 4 ]]; then
+            echo "Signing failed 4 times (Apple's timestamp server may be down); try again later." >&2
+            exit 1
+        fi
+        echo "Signing failed; retrying in $((attempt * 10)) s (attempt $((attempt + 1)) of 4)." >&2
+        sleep $((attempt * 10))
+    done
 else
     codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"
 fi
