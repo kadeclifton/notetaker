@@ -55,10 +55,26 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/developer-id.p12"
+          # A Developer ID certificate only counts as valid with Apple's intermediate authorities,
+          # which the runner may not have. Add both generations; duplicates are harmless.
+          for CA in DeveloperIDG2CA DeveloperIDCA; do
+            if curl -fsSL "https://www.apple.com/certificateauthority/$CA.cer" -o "$RUNNER_TEMP/$CA.cer"; then
+              security import "$RUNNER_TEMP/$CA.cer" -k "$KEYCHAIN" >/dev/null 2>&1 || true
+            else
+              echo "::warning::Could not download Apple's $CA intermediate certificate."
+            fi
+          done
           IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')"
           if [ -z "$IDENTITY" ]; then
-            echo "::error::DEVELOPER_ID_P12 holds no \"Developer ID Application\" certificate with its private key."
-            security find-identity -v "$KEYCHAIN"
+            echo "Certificates in the .p12:"
+            security find-certificate -a "$KEYCHAIN" | grep '"labl"' || echo "  (none)"
+            echo "Signing identities (a certificate plus its private key), including invalid ones:"
+            security find-identity -p codesigning "$KEYCHAIN"
+            if security find-certificate -c "Developer ID Application" "$KEYCHAIN" >/dev/null 2>&1; then
+              echo "::error::The .p12 has the Developer ID Application certificate but not its private key, or macOS does not trust it (see the list above). Export it from Keychain Access → My Certificates, where it has a disclosure arrow, choosing both the certificate and its key."
+            else
+              echo "::error::The .p12 has no \"Developer ID Application\" certificate. Export that one (not Apple Development or Mac App Distribution) from Keychain Access → My Certificates."
+            fi
             exit 1
           fi
           echo "Signing as $IDENTITY"
