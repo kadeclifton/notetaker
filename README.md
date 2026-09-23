@@ -373,9 +373,24 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The download is `Murmur-v0.1.0.zip` (Apple Silicon, macOS 14+). It is ad-hoc signed, so friends run
-one `xattr` command the first time, and re-grant permissions after each update (the setup window has
-a button for that). A Developer ID signature and notarization would remove both steps.
+The download is `Murmur-v0.1.0.zip` (Apple Silicon, macOS 14+).
+
+**Signing and notarization.** With an Apple Developer account, releases are signed with your
+Developer ID and notarized, so friends just unzip and open, and permissions survive updates. Set up
+once:
+
+1. Xcode → Settings → Accounts → your Apple ID → **Manage Certificates** → **+** → **Developer ID
+   Application**.
+2. Keychain Access → My Certificates → right-click it → **Export** as `.p12` with a password.
+3. appleid.apple.com → Sign-In and Security → **App-Specific Passwords** → create one.
+4. In the GitHub repo, Settings → Secrets and variables → Actions, add:
+   `DEVELOPER_ID_P12` (`base64 -i cert.p12 | pbcopy`), `DEVELOPER_ID_P12_PASSWORD`, `APPLE_ID`,
+   `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID` (developer.apple.com → Membership).
+
+The release workflow then signs with the hardened runtime, sends the app to Apple's notary service
+(a few minutes), and staples the ticket. Without the secrets, releases are ad-hoc signed and friends
+need the `xattr` step in INSTALL.md. `scripts/build-app.sh` also uses a Developer ID certificate when
+one is in your keychain, so local builds match releases.
 
 For people to download it, the repository has to be public, or they need to be added as collaborators.
 

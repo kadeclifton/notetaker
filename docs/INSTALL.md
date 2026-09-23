@@ -18,13 +18,16 @@ No Homebrew yet? Install it first with the one-line command on [brew.sh](https:/
 
 1. Download **Murmur-….zip** from the release page and double-click it to unzip.
 2. Drag **Murmur** into your **Applications** folder.
-3. Murmur isn't from the App Store, so macOS blocks it the first time. Allow it with this command in Terminal:
+3. Open Murmur. macOS may ask once whether to open an app downloaded from the internet; click **Open**.
+
+   Only if macOS says it "can't be opened" or "is damaged" (older, unsigned releases): run this
+   in Terminal, then open it again.
 
    ```sh
    xattr -dr com.apple.quarantine /Applications/Murmur.app
    ```
 
-4. Open Murmur. Its wave icon appears in the menu bar (there is no Dock icon), and a setup window opens.
+4. Once Murmur is open, its wave icon appears in the menu bar (there is no Dock icon), and a setup window opens.
 
 ## 3. Finish setup
 
@@ -57,9 +60,11 @@ smaller Compose Model if writing feels slow.
 
 ## Updating
 
-Download the new zip, replace Murmur in Applications, and run the `xattr` command again. macOS
-forgets Murmur's permissions on each update: open the menu → **Settings → Setup…** and click
-**Reset Murmur's Permissions and Ask Again**, then allow them again.
+Quit Murmur from the menu bar, download the new zip, and replace Murmur in Applications. Your
+settings, models and permissions carry over.
+
+If Murmur stops reacting to fn after an update, macOS is holding on to the old permission: open
+the menu → **Settings → Setup…**, click **Reset Murmur's Permissions and Ask Again**, and allow them.
 
 ## Optional: cleanup (fn⌃) and Compose (fn⌃⌥)
 

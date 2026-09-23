@@ -26,6 +26,7 @@ jobs:
       - name: Check the bundle
         run: |
           plutil -lint build/Murmur.app/Contents/Info.plist
+          plutil -lint Resources/Murmur.entitlements
           codesign --verify --verbose build/Murmur.app
           test -x build/Murmur.app/Contents/MacOS/Murmur
           test -s build/Murmur.app/Contents/Resources/AppIcon.icns
