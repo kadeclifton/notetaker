@@ -77,6 +77,8 @@ final class DictationController {
 
     /// Downloads Whisper models for the setup window and the Speech Model menu.
     let downloader = ModelDownloader()
+    /// Offers and installs newer releases from GitHub.
+    let updater = Updater()
     private lazy var setupWindow = SetupWindowController(controller: self)
 
     var enabled: Bool {
@@ -96,6 +98,7 @@ final class DictationController {
         hotkeys.onInput = { [weak self] input, time in self?.handle(input, at: time) }
         hotkeys.onModifiers = { [weak self] modifiers in self?.modifiersChanged(modifiers) }
         downloader.onFinished = { [weak self] option in self?.useWhisperModel(option) }
+        updater.onChange = { [weak self] in self?.onChange?() }
         if Permissions.microphone == .notDetermined {
             Permissions.requestMicrophone { _ in
                 Task { @MainActor [weak self] in self?.onChange?() }
@@ -135,6 +138,7 @@ final class DictationController {
         }
         detectLocalLLM()
         installHotkey()
+        updater.configure(config.updates)
         onChange?()
     }
 
