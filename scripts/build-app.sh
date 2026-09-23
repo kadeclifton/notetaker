@@ -33,6 +33,26 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Murmur"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+
+# macOS 26 icons (light, dark, clear, tinted) are compiled from Resources/AppIcon.icon by Xcode's
+# actool. Without Xcode 26 the flat AppIcon.icns above is used, which is fine on every macOS.
+ICON_NOTE="flat icon only (install Xcode 26 for dark and tinted icons)"
+if xcrun --find actool >/dev/null 2>&1; then
+    ICON_TMP="$(mktemp -d)"
+    if xcrun actool "$ROOT/Resources/AppIcon.icon" --compile "$ICON_TMP" \
+            --platform macosx --target-device mac --minimum-deployment-target 14.0 \
+            --app-icon AppIcon --output-partial-info-plist "$ICON_TMP/partial.plist" \
+            --output-format human-readable-text --errors >"$ICON_TMP/actool.log" 2>&1 \
+            && [[ -f "$ICON_TMP/Assets.car" ]]; then
+        cp "$ICON_TMP/Assets.car" "$APP/Contents/Resources/Assets.car"
+        [[ -f "$ICON_TMP/AppIcon.icns" ]] && cp "$ICON_TMP/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+        ICON_NOTE="light, dark, clear and tinted icons"
+    else
+        echo "Note: actool could not compile AppIcon.icon; using the flat icon." >&2
+        sed 's/^/  actool: /' "$ICON_TMP/actool.log" >&2 || true
+    fi
+    rm -rf "$ICON_TMP"
+fi
 if [[ -n "${MURMUR_VERSION:-}" ]]; then
     # Release builds: stamp the version from the tag (v0.2.0 → 0.2.0).
     plutil -replace CFBundleShortVersionString -string "${MURMUR_VERSION#v}" "$APP/Contents/Info.plist"
@@ -41,10 +61,10 @@ fi
 codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"
 
 if [[ "$IDENTITY" == "-" ]]; then
-    echo "Built $APP (ad-hoc signed)"
+    echo "Built $APP (ad-hoc signed, $ICON_NOTE)"
     echo "Tip: run scripts/setup-signing.sh once so macOS permissions survive rebuilds."
 else
-    echo "Built $APP (signed with \"$IDENTITY\")"
+    echo "Built $APP (signed with \"$IDENTITY\", $ICON_NOTE)"
 fi
 
 if [[ "${1:-}" == "--install" ]]; then

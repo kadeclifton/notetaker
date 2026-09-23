@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Draws Murmur's app icon and writes Resources/AppIcon.icns (plus a PNG preview).
+"""Draws Murmur's app icon: Resources/AppIcon.icon for macOS 26 (light, dark, clear and tinted,
+compiled by Xcode's actool in build-app.sh) and Resources/AppIcon.icns for older macOS and for
+builds without Xcode 26 (plus a PNG preview).
 
 The bars are the loudness of the word "murmur" spoken aloud, measured in 13 slices: a big swell
 for the stressed MUR, a dip where the second "m" hums, then a smaller mur that trails off. White
@@ -107,6 +109,59 @@ def icon(heights: list) -> Image.Image:
     return canvas.resize((1024, 1024), Image.LANCZOS)
 
 
+# Icon Composer (macOS 26+): the system draws the tile, its light/dark gradient, glass, and the
+# clear and tinted variants; we supply only the bars as a transparent layer and a seed color.
+SEED = (86, 131, 255)   # between the gradient's violet and blue
+
+
+def composer_icon(heights: list) -> None:
+    folder = ROOT / "Resources" / "AppIcon.icon"
+    (folder / "Assets").mkdir(parents=True, exist_ok=True)
+    # Same proportions as the flat icon, on Icon Composer's full 1024 canvas (the flat icon's tile
+    # is 824 wide; the system adds the margins itself).
+    scale = 1024 / 824
+    bar, gap, tallest = 34 * scale, 16 * scale, 500 * scale
+    total = len(heights) * bar + (len(heights) - 1) * gap
+    left = 512 - total / 2
+    rects = []
+    for i, h in enumerate(heights):
+        height = tallest * h
+        rects.append(f'  <rect x="{left + i * (bar + gap):.2f}" y="{512 - height / 2:.2f}" width="{bar:.2f}" '
+                     f'height="{height:.2f}" rx="{bar / 2:.2f}" fill="#FFFFFF"/>')
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">\n'
+           + "\n".join(rects) + "\n</svg>\n")
+    (folder / "Assets" / "wave.svg").write_text(svg)
+    r, g, b = (c / 255 for c in SEED)
+    (folder / "icon.json").write_text(f"""{{
+  "fill" : {{
+    "automatic-gradient" : "extended-srgb:{r:.5f},{g:.5f},{b:.5f},1.00000"
+  }},
+  "groups" : [
+    {{
+      "layers" : [
+        {{
+          "image-name" : "wave.svg",
+          "name" : "wave"
+        }}
+      ],
+      "shadow" : {{
+        "kind" : "neutral",
+        "opacity" : 0.5
+      }},
+      "translucency" : {{
+        "enabled" : true,
+        "value" : 0.4
+      }}
+    }}
+  ],
+  "supported-platforms" : {{
+    "squares" : "shared"
+  }}
+}}
+""")
+    print("Wrote", folder)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--from", dest="source", help="WAV recording of the word to measure")
@@ -121,6 +176,7 @@ def main() -> None:
     image.save(resources / "AppIcon.icns", format="ICNS",
                sizes=[(16, 16), (32, 32), (64, 64), (128, 128), (256, 256), (512, 512), (1024, 1024)])
     print("Wrote", resources / "AppIcon.icns")
+    composer_icon(heights)
 
 
 if __name__ == "__main__":

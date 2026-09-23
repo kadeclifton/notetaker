@@ -10,6 +10,11 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Use the newest Xcode (26+ compiles the dark and tinted icon)
+        run: |
+          XCODE="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -n "$XCODE" ]; then sudo xcode-select -s "$XCODE"; fi
+          xcodebuild -version
       - name: Build
         run: swift build
       - name: Test
@@ -23,6 +28,8 @@ jobs:
           test -x build/Murmur.app/Contents/MacOS/Murmur
           test -s build/Murmur.app/Contents/Resources/AppIcon.icns
           test "$(plutil -extract CFBundleIconFile raw build/Murmur.app/Contents/Info.plist)" = AppIcon
+          test -s build/Murmur.app/Contents/Resources/Assets.car
+          xcrun assetutil --info build/Murmur.app/Contents/Resources/Assets.car | grep -i -E 'appearance|AppIcon' | sort -u | head -20
           lipo -archs build/Murmur.app/Contents/MacOS/Murmur | grep -qx arm64
           plutil -extract CFBundleShortVersionString raw build/Murmur.app/Contents/Info.plist | grep -qx 0.0.0-ci
 
