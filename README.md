@@ -55,8 +55,8 @@ scripts/build-app.sh --install
 
 Murmur appears as a waveform icon in the menu bar. There is no Dock icon.
 
-Optional: add API keys. Choose **Open .env (API keys)** from the menu (it creates
-`~/.config/murmur/.env`), fill in what you have, then **Reload Settings**:
+Optional: add API keys. Choose **Settings → Open API Keys (.env)** from the menu (it
+creates `~/.config/murmur/.env`), fill in what you have, then **Settings → Reload Settings**:
 
 ```sh
 GROQ_API_KEY=gsk_...        # fast Whisper + cleanup
@@ -110,6 +110,18 @@ tccutil reset Accessibility com.github.kadeclifton.murmur
 tccutil reset ListenEvent com.github.kadeclifton.murmur
 tccutil reset ScreenCapture com.github.kadeclifton.murmur
 ```
+
+## The menu
+
+Click the waveform in the menu bar:
+
+- **Status line**: "Ready", or **⚠️ Finish Setup…** when something needs fixing (click it).
+- **Dictation** (⌘E): on/off.
+- **Start Meeting Notes** (⌘M).
+- **Speech Model**: Fastest / Balanced / Most accurate, and how long the last dictation took.
+- **Cleanup**: punctuation and filler-word cleanup on/off, which model it uses, and how long Ollama
+  keeps that model loaded.
+- **Settings**: setup window, launch at login, the meeting notes folder, the settings and API key files.
 
 ## Using it
 
@@ -165,7 +177,7 @@ Cleanup runs on every dictation, so it only picks a **small general model** (abo
 less, not a code model), smallest first: Qwen 3, Qwen 2.5, Llama 3.2, Llama 3.1, Gemma, Mistral, Phi.
 If you only have big or code models (say `qwen3-coder:30b`), cleanup stays off and dictation stays
 fast. Meeting summaries run once per meeting, so they use the most capable model you have, big ones
-included. The menu's "Last dictation" line shows how long transcription and cleanup took.
+included. **Speech Model → Last dictation** shows how long transcription and cleanup took.
 
 Not sure what you have installed? In Terminal:
 
@@ -182,8 +194,8 @@ specific one, e.g. `"qwen3:8b"`.
 For LM Studio, start its server: Developer tab → **Start Server**, with a model loaded.
 
 **Keeping the model loaded.** Ollama unloads a model after 5 idle minutes, and the next dictation then
-waits a few seconds while it loads again. When cleanup runs on Ollama, the menu has **Keep <model>
-Loaded** with 5 minutes, 30 minutes (Murmur's default), 1 hour, 4 hours, or always. Murmur also loads
+waits a few seconds while it loads again. When cleanup runs on Ollama, **Cleanup → Keep <model>
+Loaded** offers with 5 minutes, 30 minutes (Murmur's default), 1 hour, 4 hours, or always. Murmur also loads
 the model at launch, so the first dictation doesn't wait. A 4B model takes about 3 GB of memory while
 it stays loaded. Meeting summary models are left to Ollama's normal 5 minutes.
 
@@ -193,8 +205,8 @@ dictation in about a second. A 14B+ model writes noticeably better meeting summa
 
 ## Settings
 
-The settings file is `~/.config/murmur/config.json` (menu → **Open Settings File**). It's created
-with comments on first launch. Edit it, then choose **Reload Settings**. Any key you delete goes
+The settings file is `~/.config/murmur/config.json` (menu → **Settings → Open Settings File**). It's
+created with comments on first launch. Edit it, then choose **Settings → Reload Settings**. Any key you delete goes
 back to its default. `MURMUR_HOME` moves the whole directory.
 
 ```jsonc

@@ -14,12 +14,6 @@ enum Permissions {
 
     static var microphone: AVAuthorizationStatus { AVCaptureDevice.authorizationStatus(for: .audio) }
 
-    /// Recording the call's audio in Meeting Notes (ScreenCaptureKit).
-    static var screenRecording: Bool { CGPreflightScreenCaptureAccess() }
-
-    static func requestScreenRecording() {
-        _ = CGRequestScreenCaptureAccess()
-    }
 
     /// Shows the system prompt that adds Murmur to the Accessibility list.
     static func promptAccessibility() {

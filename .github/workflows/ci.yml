@@ -21,6 +21,8 @@ jobs:
           plutil -lint build/Murmur.app/Contents/Info.plist
           codesign --verify --verbose build/Murmur.app
           test -x build/Murmur.app/Contents/MacOS/Murmur
+          test -s build/Murmur.app/Contents/Resources/AppIcon.icns
+          test "$(plutil -extract CFBundleIconFile raw build/Murmur.app/Contents/Info.plist)" = AppIcon
           lipo -archs build/Murmur.app/Contents/MacOS/Murmur | grep -qx arm64
           plutil -extract CFBundleShortVersionString raw build/Murmur.app/Contents/Info.plist | grep -qx 0.0.0-ci
 

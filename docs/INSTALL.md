@@ -46,13 +46,13 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
 - **Meeting Notes** (menu bar icon → Start Meeting Notes) records a call and writes notes. It asks for Screen &
   System Audio Recording the first time, to hear the other people.
 
-The menu shows how long each dictation took, and **Speech Model** switches between the speed and
-accuracy options.
+**Speech Model** in the menu switches between the speed and accuracy options and shows how long
+the last dictation took. **Cleanup** turns punctuation cleanup on and off.
 
 ## Updating
 
 Download the new zip, replace Murmur in Applications, and run the `xattr` command again. macOS
-forgets Murmur's permissions on each update: open the menu → **Setup…** and click
+forgets Murmur's permissions on each update: open the menu → **Settings → Setup…** and click
 **Reset Murmur's Permissions and Ask Again**, then allow them again.
 
 ## Optional: cleanup of punctuation and "um"s

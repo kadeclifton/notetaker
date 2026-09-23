@@ -295,6 +295,22 @@ final class DictationController {
         }
     }
 
+    var cleanupEnabled: Bool { config.cleanup.enabled }
+
+    /// Turns dictation cleanup on or off from the menu, editing the settings file in place.
+    func setCleanupEnabled(_ enabled: Bool) {
+        do {
+            _ = try Config.loadOrCreate(at: AppPaths.configFile)
+            if try ConfigFileEdit.setCleanupEnabled(enabled, in: AppPaths.configFile) {
+                reloadConfig()
+            } else {
+                fail("Could not change cleanup: add a \"cleanup\" section to the settings file.")
+            }
+        } catch {
+            fail("Could not update the settings file: \(error)")
+        }
+    }
+
     /// After an update, System Settings can show Murmur switched on while the grant belongs to the
     /// previous build. Clearing Murmur's entries lets macOS ask again for this build.
     func resetPermissions() {

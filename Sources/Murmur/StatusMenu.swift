@@ -40,104 +40,128 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         statusItem.button?.toolTip = controller.enabled ? "Murmur: hold \(controller.hotkeyDescription) to dictate" : "Murmur is off"
     }
 
-    // Rebuilt every time it opens so it always reflects current state.
+    // Rebuilt every time it opens so it always reflects current state. The top level stays short:
+    // what state Murmur is in, the two things you do (dictate, record a meeting), and one submenu
+    // each for speech, cleanup and settings.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         controller.detectLocalLLM()
 
-        let toggle = item(controller.enabled ? "Murmur is On" : "Murmur is Off", action: #selector(toggleEnabled), key: "e")
-        toggle.state = controller.enabled ? .on : .off
-        menu.addItem(toggle)
-
-        menu.addItem(info("Hold \(controller.hotkeyDescription) to talk · double-tap for hands-free · Esc cancels"))
-        menu.addItem(info("Transcription: \(controller.transcriberName)"))
-        menu.addItem(info("Cleanup: \(controller.cleanerName)"))
-        if let local = controller.localLLM {
-            menu.addItem(info("Local models (\(local.server)): \(local.models.joined(separator: ", "))"))
-        }
-        if controller.usesLocalWhisper {
-            let speech = NSMenuItem(title: "Speech Model", action: nil, keyEquivalent: "")
-            let choices = NSMenu()
-            choices.autoenablesItems = false
-            let current = controller.currentWhisperModel
-            for option in WhisperModelOption.catalog {
-                let downloaded = FileManager.default.fileExists(atPath: option.localURL().path)
-                var title = "\(option.title): \(option.id)"
-                if case let .downloading(active, progress) = controller.downloader.state, active == option {
-                    title += " (downloading \(Int(progress * 100))%)"
-                } else if !downloaded {
-                    title += " (download \(option.megabytes) MB)"
-                }
-                let choice = item(title, action: #selector(selectSpeechModel(_:)))
-                choice.representedObject = option.id
-                choice.state = option == current ? .on : .off
-                choice.isEnabled = !controller.downloader.isDownloading
-                choices.addItem(choice)
-            }
-            speech.submenu = choices
-            menu.addItem(speech)
-        }
-        if let model = controller.cleanupOllamaModel {
-            let keep = NSMenuItem(title: "Keep \(model) Loaded", action: nil, keyEquivalent: "")
-            let choices = NSMenu()
-            for option in KeepAlive.allCases {
-                let choice = item(option.title, action: #selector(setKeepAlive(_:)))
-                choice.representedObject = option.rawValue
-                choice.state = option == controller.keepAlive ? .on : .off
-                choices.addItem(choice)
-            }
-            keep.submenu = choices
-            menu.addItem(keep)
-        }
+        menu.addItem(statusLine())
+        let dictation = item("Dictation", action: #selector(toggleEnabled), key: "e")
+        dictation.state = controller.enabled ? .on : .off
+        menu.addItem(dictation)
 
         menu.addItem(.separator())
-        if let status = controller.meetingStatus {
-            menu.addItem(info("Meeting notes: \(status)"))
-        } else if let meeting = controller.meeting {
-            menu.addItem(item("Stop Meeting Notes (\(MeetingTranscript.clock(meeting.elapsed)))", action: #selector(stopMeeting), key: "m"))
-            for warning in meeting.warnings.suffix(2) { menu.addItem(info("⚠️ " + warning)) }
-        } else {
-            menu.addItem(item("Start Meeting Notes", action: #selector(startMeeting), key: "m"))
-        }
-        menu.addItem(info("Meeting summaries: \(controller.summaryName)"))
-        menu.addItem(item("Open Meeting Notes Folder", action: #selector(openMeetings)))
-        for problem in controller.problems { menu.addItem(info("⚠️ " + problem)) }
-        if let timing = controller.lastTiming { menu.addItem(info("Last dictation: " + timing)) }
-        if let failure = controller.lastFailure { menu.addItem(info("Last issue: " + failure)) }
-
-        let missing = permissionItems()
-        if !missing.isEmpty {
-            menu.addItem(.separator())
-            for item in missing { menu.addItem(item) }
-        }
+        addMeetingItems(to: menu)
 
         menu.addItem(.separator())
-        let login = item("Launch at Login", action: #selector(toggleLaunchAtLogin))
-        login.state = LoginItem.isEnabled ? .on : (LoginItem.needsApproval ? .mixed : .off)
-        menu.addItem(login)
-        menu.addItem(item(controller.needsSetup ? "⚠️ Finish Setup…" : "Setup…", action: #selector(showSetup)))
-        menu.addItem(item("Open Settings File", action: #selector(openSettings), key: ","))
-        menu.addItem(item("Open .env (API keys)", action: #selector(openEnv)))
-        menu.addItem(item("Reload Settings", action: #selector(reload), key: "r"))
+        if controller.usesLocalWhisper { menu.addItem(submenu("Speech Model", speechModelMenu())) }
+        menu.addItem(submenu("Cleanup", cleanupMenu()))
+        menu.addItem(submenu("Settings", settingsMenu()))
+
         menu.addItem(.separator())
         menu.addItem(item("Quit Murmur", action: #selector(quit), key: "q"))
     }
 
-    private func permissionItems() -> [NSMenuItem] {
-        var items: [NSMenuItem] = []
-        if !Permissions.inputMonitoring || !controller.hotkeyIsListening {
-            items.append(item("⚠️ Grant Input Monitoring (for the hotkey)…", action: #selector(openInputMonitoring)))
+    /// One line saying what state Murmur is in, which opens the fix when something is wrong.
+    private func statusLine() -> NSMenuItem {
+        if controller.needsSetup {
+            return item("⚠️ Finish Setup…", action: #selector(showSetup))
         }
-        if !Permissions.accessibility {
-            items.append(item("⚠️ Grant Accessibility (for pasting)…", action: #selector(openAccessibility)))
+        if let problem = controller.problems.first {
+            let line = item("⚠️ " + problem, action: #selector(openSettings))
+            line.toolTip = problem
+            if line.title.count > 60 { line.title = String(line.title.prefix(57)) + "…" }
+            return line
         }
-        if Permissions.microphone != .authorized {
-            items.append(item("⚠️ Grant Microphone…", action: #selector(openMicrophone)))
+        if !controller.enabled { return info("Dictation is off") }
+        return info("Ready · hold \(controller.hotkeyDescription) to talk, double-tap for hands-free")
+    }
+
+    private func addMeetingItems(to menu: NSMenu) {
+        if let status = controller.meetingStatus {
+            menu.addItem(info("Meeting Notes: \(status)"))
+        } else if let meeting = controller.meeting {
+            menu.addItem(item("Stop Meeting Notes · \(MeetingTranscript.clock(meeting.elapsed))", action: #selector(stopMeeting), key: "m"))
+            if let warning = meeting.warnings.last { menu.addItem(info("⚠️ " + warning)) }
+        } else {
+            menu.addItem(item("Start Meeting Notes", action: #selector(startMeeting), key: "m"))
         }
-        if controller.config.meeting.captureSystemAudio && !Permissions.screenRecording {
-            items.append(item("Grant Screen & System Audio Recording (for meeting audio)…", action: #selector(openScreenRecording)))
+    }
+
+    private func speechModelMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let current = controller.currentWhisperModel
+        for option in WhisperModelOption.catalog {
+            var title = "\(option.title.replacingOccurrences(of: " (recommended)", with: "")) · \(option.id)"
+            if case let .downloading(active, progress) = controller.downloader.state, active == option {
+                title += " · downloading \(Int(progress * 100))%"
+            } else if !FileManager.default.fileExists(atPath: option.localURL().path) {
+                title += " · \(option.megabytes) MB download"
+            }
+            let choice = item(title, action: #selector(selectSpeechModel(_:)))
+            choice.representedObject = option.id
+            choice.state = option == current ? .on : .off
+            choice.isEnabled = !controller.downloader.isDownloading
+            menu.addItem(choice)
         }
-        return items
+        if let timing = controller.lastTiming {
+            menu.addItem(.separator())
+            menu.addItem(info("Last dictation: " + timing))
+        }
+        return menu
+    }
+
+    private func cleanupMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let toggle = item("Fix Punctuation & Remove Filler Words", action: #selector(toggleCleanup))
+        toggle.state = controller.cleanupEnabled ? .on : .off
+        menu.addItem(toggle)
+        if controller.cleanupEnabled {
+            menu.addItem(info("Using: \(controller.cleanerName)"))
+        }
+        if let model = controller.cleanupOllamaModel {
+            let keep = NSMenu()
+            keep.autoenablesItems = false
+            for option in KeepAlive.allCases {
+                let choice = item(option.title, action: #selector(setKeepAlive(_:)))
+                choice.representedObject = option.rawValue
+                choice.state = option == controller.keepAlive ? .on : .off
+                keep.addItem(choice)
+            }
+            menu.addItem(submenu("Keep \(model) Loaded", keep))
+        }
+        menu.addItem(.separator())
+        menu.addItem(info("Meeting summaries: \(controller.summaryName)"))
+        return menu
+    }
+
+    private func settingsMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.addItem(item(controller.needsSetup ? "Finish Setup…" : "Setup…", action: #selector(showSetup)))
+        let login = item("Launch at Login", action: #selector(toggleLaunchAtLogin))
+        login.state = LoginItem.isEnabled ? .on : (LoginItem.needsApproval ? .mixed : .off)
+        menu.addItem(login)
+        menu.addItem(.separator())
+        menu.addItem(item("Open Meeting Notes Folder", action: #selector(openMeetings)))
+        menu.addItem(item("Open Settings File", action: #selector(openSettings), key: ","))
+        menu.addItem(item("Open API Keys (.env)", action: #selector(openEnv)))
+        menu.addItem(item("Reload Settings", action: #selector(reload), key: "r"))
+        menu.addItem(.separator())
+        menu.addItem(info("Transcription: \(controller.transcriberName)"))
+        for problem in controller.problems { menu.addItem(info("⚠️ " + problem)) }
+        if let failure = controller.lastFailure { menu.addItem(info("Last issue: " + failure)) }
+        return menu
+    }
+
+    private func submenu(_ title: String, _ menu: NSMenu) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.submenu = menu
+        return item
     }
 
     private func item(_ title: String, action: Selector, key: String = "") -> NSMenuItem {
@@ -205,24 +229,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controller.reloadConfig()
     }
 
-    @objc private func openInputMonitoring() {
-        Permissions.requestInputMonitoring()
-        Permissions.open(.inputMonitoring)
-    }
-
-    @objc private func openAccessibility() {
-        Permissions.promptAccessibility()
-        Permissions.open(.accessibility)
-    }
-
-    @objc private func openMicrophone() {
-        if Permissions.microphone == .notDetermined {
-            Permissions.requestMicrophone { _ in }
-        } else {
-            Permissions.open(.microphone)
-        }
-    }
-
     @objc private func selectSpeechModel(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String,
               let option = WhisperModelOption.catalog.first(where: { $0.id == id }) else { return }
@@ -231,6 +237,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     @objc private func showSetup() {
         controller.showSetup()
+    }
+
+    @objc private func toggleCleanup() {
+        controller.setCleanupEnabled(!controller.cleanupEnabled)
     }
 
     @objc private func setKeepAlive(_ sender: NSMenuItem) {
@@ -248,11 +258,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     @objc private func openMeetings() {
         controller.openMeetingsFolder()
-    }
-
-    @objc private func openScreenRecording() {
-        Permissions.requestScreenRecording()
-        Permissions.open(.screenRecording)
     }
 
     @objc private func quit() {

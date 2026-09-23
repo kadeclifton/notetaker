@@ -57,3 +57,33 @@ public enum ConfigFileEdit {
         return true
     }
 }
+
+extension ConfigFileEdit {
+    /// Sets `cleanup.enabled`, adding the key if the cleanup section lacks it. Nil if the settings
+    /// file has no cleanup section to edit.
+    public static func settingCleanupEnabled(_ enabled: Bool, in text: String) -> String? {
+        let value = enabled ? "true" : "false"
+        let range = NSRange(text.startIndex..., in: text)
+        // "enabled" inside the cleanup object (which holds no nested objects).
+        if let regex = try? NSRegularExpression(pattern: #"("cleanup"\s*:\s*\{[^{}]*?"enabled"\s*:\s*)(true|false)"#),
+           let match = regex.firstMatch(in: text, range: range),
+           let flag = Range(match.range(at: 2), in: text) {
+            return text.replacingCharacters(in: flag, with: value)
+        }
+        if let regex = try? NSRegularExpression(pattern: #""cleanup"\s*:\s*\{"#),
+           let match = regex.firstMatch(in: text, range: range),
+           let open = Range(match.range, in: text) {
+            return text.replacingCharacters(in: open, with: String(text[open]) + " \"enabled\": \(value),")
+        }
+        return nil
+    }
+
+    /// Same, on disk; verifies the result before writing. False if it could not be applied.
+    public static func setCleanupEnabled(_ enabled: Bool, in file: URL) throws -> Bool {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        guard let updated = settingCleanupEnabled(enabled, in: text),
+              try Config.parse(updated).cleanup.enabled == enabled else { return false }
+        try Data(updated.utf8).write(to: file, options: .atomic)
+        return true
+    }
+}

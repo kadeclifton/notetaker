@@ -38,3 +38,33 @@ final class WhisperModelsTests: XCTestCase {
         XCTAssertEqual(try Config.loadOrCreate(at: file).transcription.whisperCpp.model, "models/ggml-base.en.bin")
     }
 }
+
+final class CleanupToggleEditTests: XCTestCase {
+    func testTogglesTheCleanupFlagOnly() throws {
+        let off = try XCTUnwrap(ConfigFileEdit.settingCleanupEnabled(false, in: Config.defaultFileContents))
+        let config = try Config.parse(off)
+        XCTAssertFalse(config.cleanup.enabled)
+        XCTAssertEqual(config.meeting, MeetingConfig(), "nothing else changes")
+        XCTAssertTrue(off.contains("// Removes filler words"), "comments survive")
+        let on = try XCTUnwrap(ConfigFileEdit.settingCleanupEnabled(true, in: off))
+        XCTAssertEqual(on, Config.defaultFileContents)
+    }
+
+    func testAddsTheKeyWhenMissing() throws {
+        let text = #"{ "cleanup": { "provider": "local" } }"#
+        let edited = try XCTUnwrap(ConfigFileEdit.settingCleanupEnabled(false, in: text))
+        XCTAssertFalse(try Config.parse(edited).cleanup.enabled)
+        XCTAssertEqual(try Config.parse(edited).cleanup.provider, .local)
+        XCTAssertNil(ConfigFileEdit.settingCleanupEnabled(false, in: #"{ "hotkey": "fn" }"#))
+    }
+
+    func testOnDisk() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Config.defaultFileContents.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertTrue(try ConfigFileEdit.setCleanupEnabled(false, in: file))
+        XCTAssertFalse(try Config.loadOrCreate(at: file).cleanup.enabled)
+        try #"{ "hotkey": "fn" }"#.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertFalse(try ConfigFileEdit.setCleanupEnabled(false, in: file))
+    }
+}
