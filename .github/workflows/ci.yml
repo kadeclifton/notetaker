@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+      - name: Package the app
+        run: scripts/build-app.sh
+      - name: Check the bundle
+        run: |
+          plutil -lint build/Murmur.app/Contents/Info.plist
+          codesign --verify --verbose build/Murmur.app
+          test -x build/Murmur.app/Contents/MacOS/Murmur
+
+  linux:
+    runs-on: ubuntu-latest
+    container: swift:6.1-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test the platform-independent core
+        run: swift test
