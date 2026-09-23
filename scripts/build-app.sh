@@ -4,16 +4,25 @@
 #   scripts/build-app.sh            # build only
 #   scripts/build-app.sh --install  # build, install, and relaunch
 #
-# Signing: by default the app is ad-hoc signed. macOS ties Accessibility and Input Monitoring
-# grants to the signature, and an ad-hoc signature changes on every build, so you would have to
-# re-grant after each rebuild. Set CODESIGN_IDENTITY to a certificate in your keychain (a free
-# self-signed "Code Signing" certificate is enough, see README) to keep permissions across builds.
+# Signing: uses the "Murmur Dev" certificate from scripts/setup-signing.sh when it exists, so
+# macOS permissions survive rebuilds. Without it the app is ad-hoc signed, which gets a new
+# signature every build; --install then clears Murmur's old permission entries (they would look
+# granted in System Settings but no longer apply) so macOS asks again cleanly.
+# CODESIGN_IDENTITY picks another certificate, or "-" to force ad-hoc.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
 APP="$ROOT/build/Murmur.app"
-IDENTITY="${CODESIGN_IDENTITY:--}"
+BUNDLE_ID="com.github.kadeclifton.murmur"
+
+if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+    IDENTITY="$CODESIGN_IDENTITY"
+elif security find-identity -v -p codesigning 2>/dev/null | grep -q '"Murmur Dev"'; then
+    IDENTITY="Murmur Dev"
+else
+    IDENTITY="-"
+fi
 
 swift build -c release --product Murmur
 BIN="$(swift build -c release --show-bin-path)/Murmur"
@@ -22,14 +31,28 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Murmur"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
-codesign --force --sign "$IDENTITY" --identifier com.github.kadeclifton.murmur "$APP"
-echo "Built $APP (signed with: $IDENTITY)"
+codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"
+
+if [[ "$IDENTITY" == "-" ]]; then
+    echo "Built $APP (ad-hoc signed)"
+    echo "Tip: run scripts/setup-signing.sh once so macOS permissions survive rebuilds."
+else
+    echo "Built $APP (signed with \"$IDENTITY\")"
+fi
 
 if [[ "${1:-}" == "--install" ]]; then
     DEST="/Applications"
     [[ -w "$DEST" ]] || DEST="$HOME/Applications"
     mkdir -p "$DEST"
     pkill -x Murmur 2>/dev/null || true
+    if [[ "$IDENTITY" == "-" ]]; then
+        # The old grants belong to the previous signature. Clear them so System Settings
+        # shows the truth and macOS asks for the new build.
+        for service in Accessibility ListenEvent ScreenCapture; do
+            tccutil reset "$service" "$BUNDLE_ID" >/dev/null 2>&1 || true
+        done
+        echo "Cleared Murmur's old permissions; grant them again when asked."
+    fi
     rm -rf "$DEST/Murmur.app"
     cp -R "$APP" "$DEST/"
     echo "Installed $DEST/Murmur.app"

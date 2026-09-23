@@ -22,6 +22,35 @@ jobs:
           codesign --verify --verbose build/Murmur.app
           test -x build/Murmur.app/Contents/MacOS/Murmur
 
+  signing:
+    # scripts/setup-signing.sh on a real Mac: the certificate must be usable by codesign, and two
+    # separate builds must get the same designated requirement (that is what keeps permissions).
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create a throwaway keychain
+        run: |
+          security create-keychain -p ci "$RUNNER_TEMP/ci.keychain-db"
+          security set-keychain-settings "$RUNNER_TEMP/ci.keychain-db"
+          security unlock-keychain -p ci "$RUNNER_TEMP/ci.keychain-db"
+          security list-keychains -d user -s "$RUNNER_TEMP/ci.keychain-db" $(security list-keychains -d user | tr -d '"')
+      - name: Set up signing
+        run: MURMUR_KEYCHAIN="$RUNNER_TEMP/ci.keychain-db" MURMUR_TRUST=admin scripts/setup-signing.sh
+      - name: Setting up again is a no-op
+        run: MURMUR_KEYCHAIN="$RUNNER_TEMP/ci.keychain-db" MURMUR_TRUST=admin scripts/setup-signing.sh
+      - name: Two builds keep the same signature requirement
+        run: |
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k ci "$RUNNER_TEMP/ci.keychain-db" >/dev/null
+          scripts/build-app.sh | tee build1.log
+          grep -q 'signed with "Murmur Dev"' build1.log
+          codesign -d -r- build/Murmur.app 2>&1 | grep designated | tee req1.txt
+          grep -q 'certificate leaf' req1.txt
+          touch Sources/Murmur/App.swift
+          scripts/build-app.sh
+          codesign -d -r- build/Murmur.app 2>&1 | grep designated > req2.txt
+          diff req1.txt req2.txt
+          codesign --verify --verbose build/Murmur.app
+
   linux:
     runs-on: ubuntu-latest
     container: swift:6.1-noble

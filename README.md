@@ -43,6 +43,9 @@ git clone https://github.com/kadeclifton/notetaker.git murmur && cd murmur
 brew install whisper-cpp
 scripts/download-model.sh small.en      # 466 MB. Or: medium.en (1.5 GB, more accurate)
 
+# One-time: a signing certificate so permissions survive rebuilds (asks for your password)
+scripts/setup-signing.sh
+
 # Build Murmur.app and install it to /Applications (or ~/Applications)
 scripts/build-app.sh --install
 ```
@@ -81,18 +84,29 @@ If the hotkey is `fn` (the default), stop macOS from also reacting to it:
 System Settings → Keyboard → **Press 🌐 key to: Do Nothing**. Also make sure
 Keyboard → Dictation's shortcut isn't set to a fn press.
 
-### Permissions keep resetting after a rebuild
+### Keep permissions across rebuilds (recommended)
 
-macOS ties these grants to the app's code signature. `build-app.sh` signs ad-hoc by default,
-and an ad-hoc signature changes on every build, so after rebuilding the entries in Settings
-look enabled but no longer apply. Either remove Murmur from each list (–) and add it again, or
-sign with a stable certificate:
+macOS ties these permissions to the app's code signature. Without a signing certificate each build
+gets a new signature, so after a rebuild System Settings still shows Murmur switched on but the
+switch no longer applies (the menu keeps showing ⚠️ Grant…). Fix it once:
 
-1. Keychain Access → Certificate Assistant → Create a Certificate…
-   Name: `Murmur Dev`, Identity Type: Self Signed Root, Certificate Type: **Code Signing**.
-2. `CODESIGN_IDENTITY="Murmur Dev" scripts/build-app.sh --install`
+```sh
+scripts/setup-signing.sh        # creates a "Murmur Dev" certificate; asks for your password once
+scripts/build-app.sh --install  # now signed with it
+```
 
-Grant the permissions once more; they then survive rebuilds.
+Grant the permissions one last time; later rebuilds keep them. The certificate stays on your Mac, can
+only sign code, and can be deleted in Keychain Access. If macOS asks whether `codesign` may use the key
+during a build, choose **Always Allow**.
+
+Without the certificate, `build-app.sh --install` clears Murmur's stale entries each time so macOS asks
+again cleanly. To do that by hand:
+
+```sh
+tccutil reset Accessibility com.github.kadeclifton.murmur
+tccutil reset ListenEvent com.github.kadeclifton.murmur
+tccutil reset ScreenCapture com.github.kadeclifton.murmur
+```
 
 ## Using it
 
@@ -277,6 +291,8 @@ Logs go to the unified log: `log stream --predicate 'process == "Murmur"'`.
 
 ## Troubleshooting
 
+- **The menu keeps saying Grant… although Settings shows it on.** Those switches belong to an older
+  build. See "Keep permissions across rebuilds" above.
 - **Nothing happens when I hold fn.** Check Input Monitoring, then quit and reopen Murmur. Check that
   the 🌐 key is set to "Do Nothing". Try `"hotkey": "rightOption"` to rule out the fn key.
 - **The pill shows but no text appears.** Grant Accessibility and restart Murmur. The transcript is
