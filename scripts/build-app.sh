@@ -35,8 +35,9 @@ cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 # macOS 26 icons (light, dark, clear, tinted) are compiled from Resources/AppIcon.icon by Xcode's
-# actool. Without Xcode 26 the flat AppIcon.icns above is used, which is fine on every macOS.
-ICON_NOTE="flat icon only (install Xcode 26 for dark and tinted icons)"
+# actool, which needs Xcode 26 running on macOS 26. Otherwise the flat AppIcon.icns above is used,
+# which works on every macOS.
+ICON_NOTE="flat icon only (dark and tinted icons need Xcode 26 on macOS 26)"
 if xcrun --find actool >/dev/null 2>&1; then
     ICON_TMP="$(mktemp -d)"
     if xcrun actool "$ROOT/Resources/AppIcon.icon" --compile "$ICON_TMP" \

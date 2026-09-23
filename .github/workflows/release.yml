@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-15
+    # macOS 26: needed to compile the light/dark/clear/tinted app icon (see ci.yml).
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Use the newest Xcode (26+ compiles the dark and tinted icon)
