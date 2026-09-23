@@ -178,6 +178,12 @@ specific one, e.g. `"qwen3:8b"`.
 
 For LM Studio, start its server: Developer tab → **Start Server**, with a model loaded.
 
+**Keeping the model loaded.** Ollama unloads a model after 5 idle minutes, and the next dictation then
+waits a few seconds while it loads again. When cleanup runs on Ollama, the menu has **Keep <model>
+Loaded** with 5 minutes, 30 minutes (Murmur's default), 1 hour, 4 hours, or always. Murmur also loads
+the model at launch, so the first dictation doesn't wait. A 4B model takes about 3 GB of memory while
+it stays loaded. Meeting summary models are left to Ollama's normal 5 minutes.
+
 Rough guide on Apple Silicon: a 3–4B model (`ollama pull qwen3:4b` or `llama3.2:3b`) cleans up
 dictation in about a second. A 14B+ model writes noticeably better meeting summaries. No Ollama yet?
 `brew install ollama`, `ollama serve`, then pull a model.

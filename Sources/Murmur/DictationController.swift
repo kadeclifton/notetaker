@@ -38,6 +38,18 @@ final class DictationController {
 
     /// Ollama or LM Studio, if one is running. Checked on launch, on reload and when the menu opens.
     private(set) var localLLM: LocalLLM?
+    /// The Ollama model cleanup uses, if cleanup runs on Ollama. Kept loaded per `keepAlive`.
+    private(set) var cleanupOllamaModel: String?
+
+    /// How long Ollama keeps the cleanup model loaded. Set from the menu.
+    var keepAlive: KeepAlive {
+        get { KeepAlive(rawValue: UserDefaults.standard.string(forKey: "ollamaKeepAlive") ?? "") ?? .default }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: "ollamaKeepAlive")
+            keepCleanupModelLoaded()
+            onChange?()
+        }
+    }
 
     /// The meeting being recorded, if any.
     private(set) var meeting: MeetingRecorder?
@@ -117,11 +129,14 @@ final class DictationController {
     /// Builds the pipeline once so the menu shows what will be used and any setup problem.
     private func refreshModels() {
         pipelineProblem = nil
+        let previousOllamaModel = cleanupOllamaModel
+        cleanupOllamaModel = nil
         do {
             let pipeline = try DictationPipeline(config: config, env: env, local: localLLM)
             transcriberName = pipeline.transcriber.name
             cleanerName = pipeline.cleaner?.name
                 ?? (config.cleanup.enabled ? "off (no API key or small local model)" : "off")
+            cleanupOllamaModel = Self.ollamaModel(of: pipeline.cleaner)
         } catch {
             transcriberName = "not ready"
             cleanerName = "–"
@@ -133,6 +148,21 @@ final class DictationController {
                                         env: env, local: localLLM, purpose: .summary)
             : nil
         summaryName = summary?.name ?? (m.summarize ? "off (no API key or local model)" : "off")
+        // A newly chosen cleanup model: load it now so the first dictation does not wait.
+        if cleanupOllamaModel != previousOllamaModel { keepCleanupModelLoaded() }
+    }
+
+    private static func ollamaModel(of cleaner: TextCleaner?) -> String? {
+        guard let chat = (cleaner as? LLMCleaner)?.chat as? OpenAICompatibleChat,
+              chat.service == LocalLLM.ollama.name else { return nil }
+        return chat.model
+    }
+
+    /// Loads the cleanup model (if needed) and restarts its keep-loaded timer.
+    private func keepCleanupModelLoaded() {
+        guard let model = cleanupOllamaModel else { return }
+        let keepAlive = self.keepAlive
+        Task.detached { await LocalLLM.keepLoaded(model: model, for: keepAlive) }
     }
 
     // MARK: Meetings
@@ -365,6 +395,8 @@ final class DictationController {
                 guard let self else { return }
                 if let problem = result.cleanupProblem { self.lastFailure = problem }
                 self.lastTiming = Self.describeTiming(result, cleaner: pipeline.cleaner?.name)
+                // Each cleanup request resets Ollama's timer to its 5-minute default; set ours again.
+                if result.cleanupSeconds != nil { self.keepCleanupModelLoaded() }
                 if result.text.isEmpty {
                     self.finishJob(id, message: "No speech heard")
                     return

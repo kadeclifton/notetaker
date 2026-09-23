@@ -55,6 +55,18 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         if let local = controller.localLLM {
             menu.addItem(info("Local models (\(local.server)): \(local.models.joined(separator: ", "))"))
         }
+        if let model = controller.cleanupOllamaModel {
+            let keep = NSMenuItem(title: "Keep \(model) Loaded", action: nil, keyEquivalent: "")
+            let choices = NSMenu()
+            for option in KeepAlive.allCases {
+                let choice = item(option.title, action: #selector(setKeepAlive(_:)))
+                choice.representedObject = option.rawValue
+                choice.state = option == controller.keepAlive ? .on : .off
+                choices.addItem(choice)
+            }
+            keep.submenu = choices
+            menu.addItem(keep)
+        }
 
         menu.addItem(.separator())
         if let status = controller.meetingStatus {
@@ -186,6 +198,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         } else {
             Permissions.open(.microphone)
         }
+    }
+
+    @objc private func setKeepAlive(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let option = KeepAlive(rawValue: raw) else { return }
+        controller.keepAlive = option
     }
 
     @objc private func startMeeting() {

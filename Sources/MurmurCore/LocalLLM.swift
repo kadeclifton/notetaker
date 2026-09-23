@@ -129,3 +129,51 @@ public struct LocalLLM: Sendable, Equatable {
         return LocalLLM(server: lmStudio.name, baseURL: lmStudio.root.appendingPathComponent("v1"), models: list.data.map(\.id))
     }
 }
+
+// MARK: - Keeping the cleanup model loaded
+
+/// How long Ollama keeps a model in memory after its last request. Ollama's own default is five
+/// minutes; after that the next dictation waits a few seconds while the model loads again.
+public enum KeepAlive: String, CaseIterable, Sendable {
+    case fiveMinutes = "5m"
+    case thirtyMinutes = "30m"
+    case oneHour = "1h"
+    case fourHours = "4h"
+    case always = "forever"
+
+    public static let `default` = KeepAlive.thirtyMinutes
+
+    public var title: String {
+        switch self {
+        case .fiveMinutes: return "5 minutes (Ollama's default)"
+        case .thirtyMinutes: return "30 minutes"
+        case .oneHour: return "1 hour"
+        case .fourHours: return "4 hours"
+        case .always: return "Always, while Ollama runs"
+        }
+    }
+
+    /// Ollama takes a duration string, or a negative number for "never unload".
+    var ollamaValue: Any { self == .always ? -1 : rawValue }
+}
+
+extension LocalLLM {
+    public var isOllama: Bool { server == Self.ollama.name }
+
+    /// An empty /api/generate request loads the model (if needed) and sets how long it stays loaded.
+    /// Ollama's OpenAI-compatible endpoint has no keep-alive setting, so Murmur sends this after each
+    /// cleanup to restore the chosen time, and once at launch to load the model before the first dictation.
+    public static func keepAliveRequest(model: String, keepAlive: KeepAlive) -> URLRequest {
+        var request = URLRequest(url: ollama.root.appendingPathComponent("api/generate"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 120
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["model": model, "keep_alive": keepAlive.ollamaValue])
+        return request
+    }
+
+    public static func keepLoaded(model: String, for keepAlive: KeepAlive,
+                                  client: HTTPClient = URLSessionHTTPClient()) async {
+        _ = try? await client.send(keepAliveRequest(model: model, keepAlive: keepAlive))
+    }
+}

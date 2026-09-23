@@ -130,3 +130,22 @@ final class LocalModelChoiceTests: XCTestCase {
         XCTAssertNil(rawResult.cleanupSeconds)
     }
 }
+
+final class KeepAliveTests: XCTestCase {
+    func testRequestBody() throws {
+        let request = LocalLLM.keepAliveRequest(model: "qwen3:4b", keepAlive: .oneHour)
+        XCTAssertEqual(request.url?.absoluteString, "http://127.0.0.1:11434/api/generate")
+        XCTAssertEqual(request.httpMethod, "POST")
+        let body = jsonBody(request)
+        XCTAssertEqual(body["model"] as? String, "qwen3:4b")
+        XCTAssertEqual(body["keep_alive"] as? String, "1h")
+        XCTAssertNil(body["prompt"], "no prompt: just load and set the timer")
+        XCTAssertEqual(jsonBody(LocalLLM.keepAliveRequest(model: "m", keepAlive: .always))["keep_alive"] as? Int, -1)
+    }
+
+    func testDefaultsAndTitles() {
+        XCTAssertEqual(KeepAlive.default, .thirtyMinutes)
+        XCTAssertEqual(KeepAlive(rawValue: "4h"), .fourHours)
+        XCTAssertTrue(KeepAlive.allCases.allSatisfy { !$0.title.isEmpty })
+    }
+}
