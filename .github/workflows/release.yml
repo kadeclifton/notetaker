@@ -1,0 +1,32 @@
+name: Release
+
+# Push a tag like v0.1.0 to build Murmur and publish it as a GitHub Release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: swift test
+      - name: Build the app
+        run: MURMUR_VERSION="$GITHUB_REF_NAME" MURMUR_BUILD="$GITHUB_RUN_NUMBER" scripts/build-app.sh
+      - name: Check the bundle
+        run: |
+          codesign --verify --verbose build/Murmur.app
+          lipo -archs build/Murmur.app/Contents/MacOS/Murmur | grep -qx arm64
+          plutil -extract CFBundleShortVersionString raw build/Murmur.app/Contents/Info.plist | grep -qx "${GITHUB_REF_NAME#v}"
+      - name: Zip
+        run: ditto -c -k --keepParent build/Murmur.app "Murmur-$GITHUB_REF_NAME.zip"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "Murmur-$GITHUB_REF_NAME.zip" \
+            --title "Murmur $GITHUB_REF_NAME" --notes-file docs/INSTALL.md --verify-tag

@@ -15,12 +15,14 @@ jobs:
       - name: Test
         run: swift test
       - name: Package the app
-        run: scripts/build-app.sh
+        run: MURMUR_VERSION=v0.0.0-ci scripts/build-app.sh
       - name: Check the bundle
         run: |
           plutil -lint build/Murmur.app/Contents/Info.plist
           codesign --verify --verbose build/Murmur.app
           test -x build/Murmur.app/Contents/MacOS/Murmur
+          lipo -archs build/Murmur.app/Contents/MacOS/Murmur | grep -qx arm64
+          plutil -extract CFBundleShortVersionString raw build/Murmur.app/Contents/Info.plist | grep -qx 0.0.0-ci
 
   signing:
     # scripts/setup-signing.sh on a real Mac: the certificate must be usable by codesign, and two

@@ -28,6 +28,9 @@ the cleaned-up text appears at your cursor in whatever app has focus.
 - **No accounts, no telemetry.** Nothing leaves your Mac unless you configure a cloud API.
   With the local model and cleanup off (or a local LLM), it works fully offline.
 
+**Just want to use it?** Download the latest release and follow [docs/INSTALL.md](docs/INSTALL.md):
+no Xcode needed, a setup window walks you through the rest.
+
 ## Requirements
 
 - macOS 14 (Sonoma) or later
@@ -288,6 +291,31 @@ hotkey (CGEventTap) ─► state machine ─► AVAudioEngine @16 kHz ─► WAV
 Meeting Notes runs the mic and the call's audio side by side: each is cut into ~30 s pieces at
 pauses, transcribed with timestamps, merged into one transcript, then summarized. Long meetings are
 summarized part by part first, so they fit a local model's context window.
+
+## Releases (sharing with friends)
+
+Pushing a version tag builds Murmur on GitHub's macOS runners and publishes it as a release, with
+[docs/INSTALL.md](docs/INSTALL.md) as the release notes:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The download is `Murmur-v0.1.0.zip` (Apple Silicon, macOS 14+). It is ad-hoc signed, so friends run
+one `xattr` command the first time, and re-grant permissions after each update (the setup window has
+a button for that). A Developer ID signature and notarization would remove both steps.
+
+For people to download it, the repository has to be public, or they need to be added as collaborators.
+
+**Which speech model on which Mac.** The menu's **Speech Model** switches between the three the setup
+window offers, and **Last dictation** shows the time each one takes on your Mac:
+
+| Model | Size | Best for |
+| --- | --- | --- |
+| Fastest (`base.en`) | 142 MB | 8 GB MacBook Airs, short messages |
+| Balanced (`small.en`) | 466 MB | most Macs; the default |
+| Most accurate (`large-v3-turbo-q5_0`) | 547 MB | names, jargon, accents, other languages; Pro/Max chips |
 
 ## Development
 

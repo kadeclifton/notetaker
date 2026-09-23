@@ -24,13 +24,19 @@ else
     IDENTITY="-"
 fi
 
-swift build -c release --product Murmur
-BIN="$(swift build -c release --show-bin-path)/Murmur"
+# Apple Silicon only: whisper.cpp is too slow on Intel Macs for dictation to feel instant.
+swift build -c release --arch arm64 --product Murmur
+BIN="$(swift build -c release --arch arm64 --show-bin-path)/Murmur"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Murmur"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+if [[ -n "${MURMUR_VERSION:-}" ]]; then
+    # Release builds: stamp the version from the tag (v0.2.0 → 0.2.0).
+    plutil -replace CFBundleShortVersionString -string "${MURMUR_VERSION#v}" "$APP/Contents/Info.plist"
+    plutil -replace CFBundleVersion -string "${MURMUR_BUILD:-1}" "$APP/Contents/Info.plist"
+fi
 codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"
 
 if [[ "$IDENTITY" == "-" ]]; then

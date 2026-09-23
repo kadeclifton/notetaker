@@ -55,6 +55,28 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         if let local = controller.localLLM {
             menu.addItem(info("Local models (\(local.server)): \(local.models.joined(separator: ", "))"))
         }
+        if controller.usesLocalWhisper {
+            let speech = NSMenuItem(title: "Speech Model", action: nil, keyEquivalent: "")
+            let choices = NSMenu()
+            choices.autoenablesItems = false
+            let current = controller.currentWhisperModel
+            for option in WhisperModelOption.catalog {
+                let downloaded = FileManager.default.fileExists(atPath: option.localURL().path)
+                var title = "\(option.title): \(option.id)"
+                if case let .downloading(active, progress) = controller.downloader.state, active == option {
+                    title += " (downloading \(Int(progress * 100))%)"
+                } else if !downloaded {
+                    title += " (download \(option.megabytes) MB)"
+                }
+                let choice = item(title, action: #selector(selectSpeechModel(_:)))
+                choice.representedObject = option.id
+                choice.state = option == current ? .on : .off
+                choice.isEnabled = !controller.downloader.isDownloading
+                choices.addItem(choice)
+            }
+            speech.submenu = choices
+            menu.addItem(speech)
+        }
         if let model = controller.cleanupOllamaModel {
             let keep = NSMenuItem(title: "Keep \(model) Loaded", action: nil, keyEquivalent: "")
             let choices = NSMenu()
@@ -93,6 +115,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         let login = item("Launch at Login", action: #selector(toggleLaunchAtLogin))
         login.state = LoginItem.isEnabled ? .on : (LoginItem.needsApproval ? .mixed : .off)
         menu.addItem(login)
+        menu.addItem(item(controller.needsSetup ? "⚠️ Finish Setup…" : "Setup…", action: #selector(showSetup)))
         menu.addItem(item("Open Settings File", action: #selector(openSettings), key: ","))
         menu.addItem(item("Open .env (API keys)", action: #selector(openEnv)))
         menu.addItem(item("Reload Settings", action: #selector(reload), key: "r"))
@@ -198,6 +221,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         } else {
             Permissions.open(.microphone)
         }
+    }
+
+    @objc private func selectSpeechModel(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              let option = WhisperModelOption.catalog.first(where: { $0.id == id }) else { return }
+        controller.selectWhisperModel(option)
+    }
+
+    @objc private func showSetup() {
+        controller.showSetup()
     }
 
     @objc private func setKeepAlive(_ sender: NSMenuItem) {

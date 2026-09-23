@@ -59,6 +59,10 @@ final class DictationController {
     /// Called whenever something the menu shows has changed.
     var onChange: (() -> Void)?
 
+    /// Downloads Whisper models for the setup window and the Speech Model menu.
+    let downloader = ModelDownloader()
+    private lazy var setupWindow = SetupWindowController(controller: self)
+
     var enabled: Bool {
         get { UserDefaults.standard.object(forKey: "enabled") as? Bool ?? true }
         set {
@@ -74,6 +78,7 @@ final class DictationController {
 
     func start() {
         hotkeys.onInput = { [weak self] input, time in self?.handle(input, at: time) }
+        downloader.onFinished = { [weak self] option in self?.useWhisperModel(option) }
         if Permissions.microphone == .notDetermined {
             Permissions.requestMicrophone { _ in
                 Task { @MainActor [weak self] in self?.onChange?() }
@@ -81,6 +86,7 @@ final class DictationController {
         }
         if !Permissions.accessibility { Permissions.promptAccessibility() }
         reloadConfig()
+        if needsSetup { showSetup() }
     }
 
     /// Re-reads config.json and .env and re-installs the hotkey.
@@ -229,6 +235,89 @@ final class DictationController {
                 NSWorkspace.shared.open(url)
             }
         }
+    }
+
+    // MARK: Setup
+
+    /// True when dictation goes through whisper.cpp on this Mac (no Groq/OpenAI key in use).
+    var usesLocalWhisper: Bool {
+        switch config.transcription.engine {
+        case .local: return true
+        case .groq, .openai: return false
+        case .auto: return HostedAPI.groq.key(in: env) == nil && HostedAPI.openAI.key(in: env) == nil
+        }
+    }
+
+    var whisperInstalled: Bool {
+        let configured = config.transcription.whisperCpp.binary
+        return WhisperCppTranscriber.locateServer(configuredCli: configured) != nil
+            || WhisperCppTranscriber.locateBinary(configured: configured) != nil
+    }
+
+    var whisperModelPath: String { AppPaths.resolve(config.transcription.whisperCpp.model) }
+    var whisperModelInstalled: Bool { FileManager.default.fileExists(atPath: whisperModelPath) }
+    var currentWhisperModel: WhisperModelOption? { WhisperModelOption.matching(path: config.transcription.whisperCpp.model) }
+
+    /// Anything missing that stops dictation from working.
+    var needsSetup: Bool {
+        (usesLocalWhisper && (!whisperInstalled || !whisperModelInstalled))
+            || Permissions.microphone != .authorized
+            || !Permissions.accessibility
+            || !hotkeyIsListening
+    }
+
+    func showSetup() {
+        setupWindow.show()
+    }
+
+    /// Switches dictation to a catalog model, downloading it first if needed.
+    func selectWhisperModel(_ option: WhisperModelOption) {
+        if FileManager.default.fileExists(atPath: option.localURL().path) {
+            useWhisperModel(option)
+        } else {
+            downloader.download(option)
+            onChange?()
+        }
+    }
+
+    /// Points the settings file at a downloaded model and reloads.
+    private func useWhisperModel(_ option: WhisperModelOption) {
+        do {
+            _ = try Config.loadOrCreate(at: AppPaths.configFile)
+            if try ConfigFileEdit.setWhisperModel(option.configPath, in: AppPaths.configFile) {
+                reloadConfig()
+                flash("Speech model: \(option.title)")
+            } else {
+                fail("Downloaded \(option.fileName). Set transcription.whisperCpp.model to \"\(option.configPath)\" in the settings file.")
+            }
+        } catch {
+            fail("Could not update the settings file: \(error)")
+        }
+    }
+
+    /// After an update, System Settings can show Murmur switched on while the grant belongs to the
+    /// previous build. Clearing Murmur's entries lets macOS ask again for this build.
+    func resetPermissions() {
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.github.kadeclifton.murmur"
+        for service in ["Accessibility", "ListenEvent", "ScreenCapture"] {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+            process.arguments = ["reset", service, bundleID]
+            try? process.run()
+            process.waitUntilExit()
+        }
+        Permissions.promptAccessibility()
+        Permissions.requestInputMonitoring()
+    }
+
+    /// Input Monitoring only takes effect in a freshly started process.
+    func relaunch() {
+        let path = Bundle.main.bundleURL.path
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", path]
+        try? process.run()
+        NSApp.terminate(nil)
     }
 
     func openMeetingsFolder() {
