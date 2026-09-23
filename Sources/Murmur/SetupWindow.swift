@@ -56,6 +56,15 @@ final class SetupWindowController {
         model.cleanup = controller.cleanerName
         model.compose = controller.composerName
         model.localLLM = controller.localLLM.map { "\($0.server): \($0.models.joined(separator: ", "))" }
+        model.launchAtLogin = LoginItem.isEnabled
+        if model.ready && !UserDefaults.standard.bool(forKey: "setupCompleted") {
+            // First time everything works: start at login from now on (a switch below turns it
+            // off), and show the cheat sheet once.
+            UserDefaults.standard.set(true, forKey: "setupCompleted")
+            try? LoginItem.set(true)
+            model.launchAtLogin = LoginItem.isEnabled
+            controller.showHowToOnce()
+        }
     }
 }
 
@@ -73,6 +82,7 @@ final class SetupModel: ObservableObject {
     @Published var cleanup = "off"
     @Published var compose = "off"
     @Published var localLLM: String?
+    @Published var launchAtLogin = false
 
     var ready: Bool {
         (!usesLocalWhisper || (whisperInstalled && modelInstalled)) && microphone && accessibility && inputMonitoring
@@ -121,6 +131,12 @@ struct SetupActions {
     }
 
     func resetPermissions() { controller.resetPermissions() }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        try? LoginItem.set(enabled)
+    }
+
+    func showHowTo() { controller.showHowTo() }
     func relaunch() { controller.relaunch() }
     func openSettingsFile() { NSWorkspace.shared.open(AppPaths.configFile) }
 }
@@ -129,7 +145,7 @@ struct SetupView: View {
     @ObservedObject var model: SetupModel
     @ObservedObject var downloader: ModelDownloader
     let actions: SetupActions
-    @State private var choice: WhisperModelOption = .small
+    @State private var choice: WhisperModelOption = .recommended()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -197,9 +213,18 @@ struct SetupView: View {
             }
 
             Spacer(minLength: 0)
+            if model.ready {
+                Toggle("Start Murmur when I log in", isOn: Binding(
+                    get: { model.launchAtLogin },
+                    set: { enabled in
+                        actions.setLaunchAtLogin(enabled)
+                        model.launchAtLogin = enabled
+                    }))
+            }
             HStack {
                 if model.ready {
                     Label("Ready. Hold \(model.hotkey) and talk.", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    Button("How to Use…") { actions.showHowTo() }
                 }
                 Spacer()
                 Button("Open Settings File") { actions.openSettingsFile() }
@@ -208,7 +233,7 @@ struct SetupView: View {
         .padding(24)
         .frame(width: 560)
         .fixedSize(horizontal: false, vertical: true)
-        .onAppear { if let current = model.currentModel { choice = current } }
+        .onAppear { if model.modelInstalled, let current = model.currentModel { choice = current } }
     }
 
     @ViewBuilder
@@ -222,7 +247,8 @@ struct SetupView: View {
         VStack(alignment: .leading, spacing: 8) {
             Picker("", selection: $choice) {
                 ForEach(WhisperModelOption.catalog) { option in
-                    Text("\(option.title): \(option.detail) · \(option.megabytes) MB").tag(option)
+                    Text("\(option.title): \(option.detail) · \(option.megabytes) MB"
+                         + (option == WhisperModelOption.recommended() ? " · recommended for this Mac" : "")).tag(option)
                 }
             }
             .pickerStyle(.radioGroup)

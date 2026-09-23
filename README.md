@@ -124,6 +124,8 @@ Click the wave in the menu bar:
 - **Dictation** (⌘E): on/off.
 - **Start Meeting Notes** (⌘M).
 - **Compose Library…** (⌘L): everything Compose has written.
+- **Recent**: the last 10 dictations and composes, click to copy again (kept in memory only).
+- **Vocabulary**: add or remove the names and jargon passed to Whisper (`transcription.vocabulary`).
 - **Speech Model**: Fastest / Balanced / Most accurate, and how long the last dictation took.
 - **Cleanup & Compose**: whether plain fn cleans up too, which models clean up and compose, how long
   Ollama keeps the cleanup model loaded, and **Compose Model** (Automatic picks the best one that fits
@@ -182,6 +184,15 @@ in your Mac's memory (up to 60% of it), not the small cleanup model. With 32 GB 
 Model** overrides the choice (it sets `compose.model`). Murmur starts loading the model the moment
 you press ⌃⌥, while you are still talking. With a Groq, OpenAI or Anthropic key, `"provider": "auto"`
 uses that instead; set `"provider": "local"` under `compose` to keep it on your Mac.
+
+With no text box focused (the desktop, a Finder list, a button), Murmur doesn't paste into nothing:
+the text stays on the clipboard and the pill says so. The pill shows **Transcribing**, then
+**Cleaning up**, and the menu bar wave pulses while either runs.
+
+**Memory.** whisper-server stops after 30 minutes without dictation
+(`whisperCpp.unloadAfterMinutes`, 0 to keep it) and starts again the moment you press the hotkey,
+while you talk. Compose's automatic model choice skips "thinking" builds (named so, or seen
+reasoning regardless) when another model fits, since they spend 20 to 40 seconds reasoning first.
 
 Silent recordings are dropped before transcription, since Whisper tends to invent text
 ("Thanks for watching!") for silence.

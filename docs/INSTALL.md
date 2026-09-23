@@ -85,6 +85,11 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
   from the menu). Cleanup and Compose need the optional model below.
 - **Double-tap fn** for hands-free; tap fn again to finish.
 - **Esc** cancels.
+- **Recent** (menu bar icon) holds your last 10 dictations: click one to copy it again. If you
+  finish talking with no text box selected, Murmur leaves the words on the clipboard instead of
+  losing them; press ⌘V where you want them.
+- **Vocabulary** (menu bar icon → Add Word…) teaches it names and jargon it misspells.
+- **Settings → How to Use Murmur** shows all of this on one page.
 - **Meeting Notes** (menu bar icon → Start Meeting Notes) records a call and writes notes. It asks for Screen &
   System Audio Recording the first time, to hear the other people.
 

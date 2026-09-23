@@ -64,6 +64,8 @@ final class ComposeController: NSObject, NSWindowDelegate {
     var onMessage: ((String) -> Void)?
     /// "2.1 s transcribe + 9.4 s compose (Ollama qwen3:30b)", for the menu.
     var onTiming: ((String) -> Void)?
+    /// Text that was inserted (with how) or copied (nil), for the Recent list.
+    var onDelivered: ((String, TextInserter.Outcome?) -> Void)?
 
     init(inserter: TextInserter) {
         self.inserter = inserter
@@ -153,11 +155,12 @@ final class ComposeController: NSObject, NSWindowDelegate {
         let text = session.output
         guard !text.isEmpty else { return }
         close(saving: true)
-        Task { [inserter] in
+        Task { [inserter, weak self] in
             // Hand focus back to the app the text is for, then paste as usual.
             _ = session.target?.activate()
             try? await Task.sleep(nanoseconds: 250_000_000)
-            await inserter.insert(text, config: setup.insertion)
+            let outcome = await inserter.insert(text, config: setup.insertion)
+            self?.onDelivered?(text, outcome)
         }
     }
 
@@ -165,6 +168,7 @@ final class ComposeController: NSObject, NSWindowDelegate {
         guard let session else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(session.output, forType: .string)
+        onDelivered?(session.output, nil)
         close(saving: true)
         onMessage?("Copied")
     }
