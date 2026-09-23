@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 """Draws Murmur's app icon and writes Resources/AppIcon.icns (plus a PNG preview).
 
-White waveform bars (the menu bar symbol) on a violet-to-blue gradient, in the macOS app-icon
-shape: a 824 pt rounded square ("squircle") centered on a 1024 pt canvas with a soft shadow.
+The bars are the loudness of the word "murmur" spoken aloud, measured in 13 slices: a big swell
+for the stressed MUR, a dip where the second "m" hums, then a smaller mur that trails off. White
+bars on a violet-to-blue gradient, in the macOS app-icon shape: an 824 pt rounded square
+("squircle") centered on a 1024 pt canvas with a soft shadow.
+
+The menu bar icon draws the same heights (Sources/Murmur/MenuBarIcon.swift); keep them in sync.
 
     pip install pillow numpy
-    python3 scripts/make-icon.py
+    python3 scripts/make-icon.py                    # the built-in "murmur" shape
+    python3 scripts/make-icon.py --from murmur.wav  # measure a recording instead (16-bit PCM WAV)
+
+To record one on a Mac:  say -o murmur.wav --data-format=LEI16@22050 "murmur"
 """
+import argparse
+import wave
 from pathlib import Path
 
 import numpy as np
@@ -40,11 +49,31 @@ def gradient(size: int) -> Image.Image:
     return Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8), "RGB")
 
 
-def waveform(draw: ImageDraw.ImageDraw, center: int) -> None:
-    heights = [0.26, 0.50, 0.80, 0.58, 1.00, 0.62, 0.34]
-    bar = 60 * SS
-    gap = 40 * SS
-    tallest = 470 * SS
+# "murmur" as spoken by espeak-ng (en-us, 120 wpm), measured by word_heights() below.
+HEIGHTS = [0.19, 0.24, 0.80, 1.00, 0.80, 0.69, 0.56, 0.19, 0.16, 0.69, 0.67, 0.58, 0.42]
+
+
+def word_heights(path: str, bars: int = 13, gamma: float = 0.75, floor: float = 0.16) -> list:
+    """Loudness of a spoken word in `bars` equal slices, scaled to floor...1."""
+    with wave.open(path) as w:
+        rate = w.getframerate()
+        samples = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(float) / 32768
+        if w.getnchannels() > 1:
+            samples = samples.reshape(-1, w.getnchannels()).mean(axis=1)
+    window = int(rate * 0.01)
+    rms = np.sqrt(np.convolve(samples ** 2, np.ones(window) / window, mode="same"))
+    voiced = np.where(rms > rms.max() * 0.04)[0]          # trim the silence around the word
+    rms = rms[voiced[0]:voiced[-1]]
+    level = np.array([part.mean() for part in np.array_split(rms, bars)])
+    level = (level / level.max()) ** gamma                  # a little compression, like hearing
+    level = floor + (1 - floor) * (level - level.min()) / (level.max() - level.min())
+    return [round(float(v), 2) for v in level]
+
+
+def waveform(draw: ImageDraw.ImageDraw, center: int, heights: list) -> None:
+    bar = 34 * SS
+    gap = 16 * SS
+    tallest = 500 * SS
     total = len(heights) * bar + (len(heights) - 1) * gap
     left = center - total // 2
     for i, h in enumerate(heights):
@@ -54,7 +83,7 @@ def waveform(draw: ImageDraw.ImageDraw, center: int) -> None:
         draw.rounded_rectangle([x0, y0, x0 + bar, y0 + height], radius=bar // 2, fill=(255, 255, 255, 255))
 
 
-def icon() -> Image.Image:
+def icon(heights: list) -> Image.Image:
     canvas = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     mask = squircle_mask(BODY)
 
@@ -68,7 +97,7 @@ def icon() -> Image.Image:
     canvas.alpha_composite(body, (INSET, INSET))
 
     marks = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    waveform(ImageDraw.Draw(marks), SIZE // 2)
+    waveform(ImageDraw.Draw(marks), SIZE // 2, heights)
     # A faint shadow under the bars for depth.
     bars_shadow = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     bars_shadow.paste((20, 20, 80, 70), (0, 6 * SS), marks.split()[3])
@@ -79,7 +108,14 @@ def icon() -> Image.Image:
 
 
 def main() -> None:
-    image = icon()
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--from", dest="source", help="WAV recording of the word to measure")
+    args = parser.parse_args()
+    heights = HEIGHTS
+    if args.source:
+        heights = word_heights(args.source)
+        print("Heights (copy into HEIGHTS here and in Sources/Murmur/MenuBarIcon.swift):", heights)
+    image = icon(heights)
     resources = ROOT / "Resources"
     image.save(resources / "AppIcon.png")
     image.save(resources / "AppIcon.icns", format="ICNS",

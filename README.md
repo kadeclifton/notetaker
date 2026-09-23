@@ -53,7 +53,7 @@ scripts/setup-signing.sh
 scripts/build-app.sh --install
 ```
 
-Murmur appears as a waveform icon in the menu bar. There is no Dock icon.
+Murmur appears in the menu bar as its wave: the loudness of the word "murmur", in 13 bars. There is no Dock icon.
 
 Optional: add API keys. Choose **Settings → Open API Keys (.env)** from the menu (it
 creates `~/.config/murmur/.env`), fill in what you have, then **Settings → Reload Settings**:
@@ -113,7 +113,7 @@ tccutil reset ScreenCapture com.github.kadeclifton.murmur
 
 ## The menu
 
-Click the waveform in the menu bar:
+Click the wave in the menu bar:
 
 - **Status line**: "Ready", or **⚠️ Finish Setup…** when something needs fixing (click it).
 - **Dictation** (⌘E): on/off.

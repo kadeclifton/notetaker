@@ -126,7 +126,7 @@ extension Config {
             guard let local, let picked = local.pickModel(preferred: model, for: purpose)
                     ?? local.pickModel(preferred: model, for: .summary) else { throw SetupError.noLocalLLM }
             if local.isOllama {
-                return OllamaChat(model: picked, client: client)
+                return OllamaChat(model: picked, client: client, skipIfNotLoaded: purpose == .cleanup)
             }
             return OpenAICompatibleChat(service: local.server, baseURL: local.baseURL, apiKey: nil, model: picked, client: client)
         case .custom:
@@ -185,6 +185,22 @@ public struct DictationPipeline: Sendable {
         )
     }
 
+    /// A sentence for the menu's "Last issue" line, not an NSError dump.
+    static func describeCleanupFailure(_ error: Error) -> String {
+        if let chat = error as? ChatError { return chat.description }
+        if let url = error as? URLError {
+            switch url.code {
+            case .timedOut:
+                return "Cleanup took longer than its time limit, so the raw text was inserted. A smaller model, or keeping it loaded, helps."
+            case .cannotConnectToHost, .cannotFindHost, .networkConnectionLost, .notConnectedToInternet:
+                return "Cleanup could not reach its model (\(url.localizedDescription)), so the raw text was inserted."
+            default:
+                break
+            }
+        }
+        return "Cleanup failed, so the raw text was inserted: \(error)"
+    }
+
     public func run(samples: [Float], context: CleanupContext) async throws -> PipelineResult {
         let wav = Audio.wav(samples: samples)
         let transcribeStart = Date()
@@ -213,7 +229,7 @@ public struct DictationPipeline: Sendable {
             // Esc while the LLM is running cancels everything; any other failure (offline,
             // timeout, bad key) still inserts the raw transcript rather than losing it.
             if Task.isCancelled || error is CancellationError { throw CancellationError() }
-            result = PipelineResult(transcript: transcript, text: transcript, cleanupProblem: "Cleanup failed: \(error)")
+            result = PipelineResult(transcript: transcript, text: transcript, cleanupProblem: Self.describeCleanupFailure(error))
         }
         result.transcribeSeconds = transcribeSeconds
         result.cleanupSeconds = Date().timeIntervalSince(cleanupStart)

@@ -19,25 +19,30 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
 
     func updateIcon() {
-        let symbol: String
+        // Murmur's own wave for its normal states; system symbols where something needs attention.
+        let image: NSImage?
         if controller.meeting != nil {
-            symbol = "record.circle"
+            image = symbol("record.circle")
         } else if !controller.enabled {
-            symbol = "waveform.slash"
+            image = MenuBarIcon.image(.off)
         } else if controller.isRecording {
-            symbol = "waveform.circle.fill"
+            image = MenuBarIcon.image(.recording)
         } else if !controller.hotkeyIsListening || !controller.problems.isEmpty {
-            symbol = "exclamationmark.triangle"
+            image = symbol("exclamationmark.triangle")
         } else {
-            symbol = "waveform"
+            image = MenuBarIcon.image(.idle)
         }
         // While a meeting records, the menu bar shows how long it has been going.
         statusItem.button?.title = controller.meeting.map { " " + MeetingTranscript.clock($0.elapsed) } ?? ""
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Murmur")
-        image?.isTemplate = true
         statusItem.button?.image = image
         statusItem.button?.imagePosition = .imageLeft
         statusItem.button?.toolTip = controller.enabled ? "Murmur: hold \(controller.hotkeyDescription) to dictate" : "Murmur is off"
+    }
+
+    private func symbol(_ name: String) -> NSImage? {
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: "Murmur")
+        image?.isTemplate = true
+        return image
     }
 
     // Rebuilt every time it opens so it always reflects current state. The top level stays short:

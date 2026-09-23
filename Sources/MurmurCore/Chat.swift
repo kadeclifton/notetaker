@@ -134,21 +134,48 @@ public struct OllamaChat: ChatModel {
     public var model: String
     public var root: URL
     public var client: HTTPClient
+    /// For dictation cleanup: if Ollama has not loaded the model yet (after launch, or after it
+    /// unloaded it), fail at once instead of waiting 10-20 s for the load. The caller inserts the
+    /// raw text, and the load that follows makes the next dictation quick.
+    public var skipIfNotLoaded: Bool
 
-    public init(model: String, root: URL = LocalLLM.ollama.root, client: HTTPClient = URLSessionHTTPClient()) {
+    public init(model: String, root: URL = LocalLLM.ollama.root, client: HTTPClient = URLSessionHTTPClient(),
+                skipIfNotLoaded: Bool = false) {
         self.model = model
         self.root = root
         self.client = client
+        self.skipIfNotLoaded = skipIfNotLoaded
     }
 
     public var name: String { "Ollama \(model)" }
 
     public func complete(system: String, user: String, maxTokens: Int, timeout: TimeInterval) async throws -> String {
+        if skipIfNotLoaded, await isLoaded() == false { throw ChatError.modelNotLoaded(model) }
         do {
             return try await send(system: system, user: user, maxTokens: maxTokens, timeout: timeout, think: false)
         } catch let error as APIError where error.status == 400 && error.message.lowercased().contains("think") {
             // An older Ollama that does not know the switch.
             return try await send(system: system, user: user, maxTokens: maxTokens, timeout: timeout, think: nil)
+        }
+    }
+
+    /// Whether Ollama has the model in memory (`/api/ps`). Nil if Ollama did not say.
+    func isLoaded() async -> Bool? {
+        var request = URLRequest(url: root.appendingPathComponent("api/ps"))
+        request.timeoutInterval = 1
+        guard let (data, response) = try? await client.send(request), response.statusCode == 200 else { return nil }
+        struct Running: Decodable {
+            struct Model: Decodable {
+                let name: String?
+                let model: String?
+            }
+            let models: [Model]
+        }
+        guard let running = try? JSONDecoder().decode(Running.self, from: data) else { return nil }
+        // "qwen3" and "qwen3:latest" are the same model.
+        let wanted = model.contains(":") ? [model] : [model, model + ":latest"]
+        return running.models.contains { entry in
+            [entry.name, entry.model].contains { name in name.map(wanted.contains) ?? false }
         }
     }
 
@@ -178,5 +205,16 @@ public struct OllamaChat: ChatModel {
             throw TranscriptionError.badResponse(String(decoding: data.prefix(200), as: UTF8.self))
         }
         return ChatText.stripThinking(response.message.content ?? "")
+    }
+}
+
+public enum ChatError: Error, CustomStringConvertible, Equatable {
+    case modelNotLoaded(String)
+
+    public var description: String {
+        switch self {
+        case let .modelNotLoaded(model):
+            return "\(model) was still loading, so this dictation was inserted without cleanup. The next one will be cleaned up."
+        }
     }
 }

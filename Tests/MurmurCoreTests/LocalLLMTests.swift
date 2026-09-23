@@ -187,3 +187,56 @@ final class OllamaChatTests: XCTestCase {
         XCTAssertTrue(other.chat is OpenAICompatibleChat)
     }
 }
+
+final class OllamaLoadedTests: XCTestCase {
+    func chat(_ ps: @escaping @Sendable () -> (Int, String)) -> (OllamaChat, FakeHTTPClient) {
+        let client = FakeHTTPClient { request in
+            if request.url?.path == "/api/ps" { return ps() }
+            return (200, #"{"message":{"content":"Hello."}}"#)
+        }
+        return (OllamaChat(model: "qwen3:4b", client: client, skipIfNotLoaded: true), client)
+    }
+
+    func testSkipsWhileTheModelIsLoading() async {
+        let (ollama, client) = chat { (200, #"{"models":[{"name":"qwen3-coder:30b","model":"qwen3-coder:30b"}]}"#) }
+        do {
+            _ = try await ollama.complete(system: "s", user: "u", maxTokens: 8, timeout: 10)
+            XCTFail("expected a skip")
+        } catch {
+            XCTAssertEqual(error as? ChatError, .modelNotLoaded("qwen3:4b"))
+        }
+        XCTAssertEqual(client.requests.count, 1, "no chat request that would wait for the load")
+    }
+
+    func testRunsWhenLoaded() async throws {
+        let (ollama, _) = chat { (200, #"{"models":[{"name":"qwen3:4b","model":"qwen3:4b"}]}"#) }
+        let reply = try await ollama.complete(system: "s", user: "u", maxTokens: 8, timeout: 10)
+        XCTAssertEqual(reply, "Hello.")
+    }
+
+    func testRunsWhenOllamaCannotSay() async throws {
+        let (ollama, _) = chat { (404, "not found") }
+        let reply = try await ollama.complete(system: "s", user: "u", maxTokens: 8, timeout: 10)
+        XCTAssertEqual(reply, "Hello.")
+    }
+
+    func testLatestTagMatches() async {
+        let client = FakeHTTPClient { _ in (200, #"{"models":[{"name":"llama3.2:latest","model":"llama3.2:latest"}]}"#) }
+        let loaded = await OllamaChat(model: "llama3.2", client: client).isLoaded()
+        XCTAssertEqual(loaded, true)
+    }
+
+    func testOnlyCleanupSkips() throws {
+        let local = LocalLLM(server: "Ollama", baseURL: URL(string: "http://127.0.0.1:11434/v1")!, models: ["qwen3:4b"])
+        let cleanup = try XCTUnwrap(try Config().makeChatModel(provider: .local, model: "", env: [:], local: local, purpose: .cleanup) as? OllamaChat)
+        let summary = try XCTUnwrap(try Config().makeChatModel(provider: .local, model: "", env: [:], local: local, purpose: .summary) as? OllamaChat)
+        XCTAssertTrue(cleanup.skipIfNotLoaded)
+        XCTAssertFalse(summary.skipIfNotLoaded, "a meeting summary can wait for the load")
+    }
+
+    func testReadableFailures() {
+        XCTAssertTrue(DictationPipeline.describeCleanupFailure(URLError(.timedOut)).hasPrefix("Cleanup took longer"))
+        XCTAssertTrue(DictationPipeline.describeCleanupFailure(ChatError.modelNotLoaded("qwen3:4b")).hasPrefix("qwen3:4b was still loading"))
+        XCTAssertFalse(DictationPipeline.describeCleanupFailure(URLError(.timedOut)).contains("NSURLErrorDomain"))
+    }
+}

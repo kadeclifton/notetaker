@@ -24,7 +24,7 @@ No Homebrew yet? Install it first with the one-line command on [brew.sh](https:/
    xattr -dr com.apple.quarantine /Applications/Murmur.app
    ```
 
-4. Open Murmur. A waveform icon appears in the menu bar (there is no Dock icon), and a setup window opens.
+4. Open Murmur. Its wave icon appears in the menu bar (there is no Dock icon), and a setup window opens.
 
 ## 3. Finish setup
 
