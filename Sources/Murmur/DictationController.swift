@@ -766,8 +766,10 @@ final class DictationController {
 
     // MARK: Speech model memory
 
+    /// The background whisper-server, when dictation uses one.
     private var whisperServer: WhisperServer? {
-        (try? config.makeTranscriber(env: env) as? WhisperServerTranscriber)?.server
+        guard let transcriber = try? config.makeTranscriber(env: env) as? WhisperServerTranscriber else { return nil }
+        return transcriber.server as? WhisperServer
     }
 
     private func warmWhisperServer() {
