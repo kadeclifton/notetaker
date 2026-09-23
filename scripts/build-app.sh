@@ -4,10 +4,13 @@
 #   scripts/build-app.sh            # build only
 #   scripts/build-app.sh --install  # build, install, and relaunch
 #
-# Signing: uses the "Murmur Dev" certificate from scripts/setup-signing.sh when it exists, so
-# macOS permissions survive rebuilds. Without it the app is ad-hoc signed, which gets a new
-# signature every build; --install then clears Murmur's old permission entries (they would look
-# granted in System Settings but no longer apply) so macOS asks again cleanly.
+# Signing, first one found:
+#   1. A "Developer ID Application" certificate (Apple Developer account): signed with the hardened
+#      runtime, ready for notarization, so it opens on any Mac without warnings. Releases use this.
+#   2. The "Murmur Dev" certificate from scripts/setup-signing.sh, so macOS permissions survive
+#      rebuilds on your own Mac.
+#   3. Ad-hoc, which gets a new signature every build; --install then clears Murmur's old permission
+#      entries (they would look granted in System Settings but no longer apply) so macOS asks again.
 # CODESIGN_IDENTITY picks another certificate, or "-" to force ad-hoc.
 set -euo pipefail
 
@@ -16,8 +19,12 @@ ROOT="$PWD"
 APP="$ROOT/build/Murmur.app"
 BUNDLE_ID="com.github.kadeclifton.murmur"
 
+IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+DEVELOPER_ID="$(grep -o '"Developer ID Application: [^"]*"' <<<"$IDENTITIES" | head -1 | tr -d '"' || true)"
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
     IDENTITY="$CODESIGN_IDENTITY"
+elif [[ -n "$DEVELOPER_ID" ]]; then
+    IDENTITY="$DEVELOPER_ID"
 elif security find-identity -v -p codesigning 2>/dev/null | grep -q '"Murmur Dev"'; then
     IDENTITY="Murmur Dev"
 else
@@ -59,7 +66,14 @@ if [[ -n "${MURMUR_VERSION:-}" ]]; then
     plutil -replace CFBundleShortVersionString -string "${MURMUR_VERSION#v}" "$APP/Contents/Info.plist"
     plutil -replace CFBundleVersion -string "${MURMUR_BUILD:-1}" "$APP/Contents/Info.plist"
 fi
-codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"
+if [[ "$IDENTITY" == "Developer ID Application:"* ]]; then
+    # What notarization requires: hardened runtime, a secure timestamp, and the entitlements
+    # the hardened runtime would otherwise withhold (the microphone).
+    codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" --options runtime --timestamp \
+        --entitlements "$ROOT/Resources/Murmur.entitlements" "$APP"
+else
+    codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"
+fi
 
 if [[ "$IDENTITY" == "-" ]]; then
     echo "Built $APP (ad-hoc signed, $ICON_NOTE)"
