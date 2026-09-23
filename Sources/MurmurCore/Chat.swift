@@ -181,12 +181,29 @@ public struct AnthropicChat: ChatModel {
 
 enum ChatText {
     /// Local reasoning models (Qwen 3, DeepSeek R1) put their thinking in <think>…</think> before the answer.
+    /// "Thinking" builds (Qwen3 2507) open the block in their prompt template, so their reply
+    /// has only the closing tag: everything before the last one is reasoning.
     static func stripThinking(_ text: String) -> String {
-        guard let close = text.range(of: "</think>") else { return text }
-        let open = text.range(of: "<think>")
-        if let open, open.lowerBound > close.lowerBound { return text }
+        guard let close = text.range(of: "</think>", options: .backwards) else { return text }
         return String(text[close.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    /// Reasoning Ollama left in the reply although it was asked not to think.
+    static func hasUnparsedThinking(_ text: String) -> Bool {
+        text.contains("</think>")
+    }
+}
+
+/// Ollama models seen reasoning with `think: false` ("thinking" builds that always reason). Their
+/// later requests ask Ollama to think, so it moves the reasoning out of the reply by itself.
+final class ThinkingModels: @unchecked Sendable {
+    static let shared = ThinkingModels()
+    private let lock = NSLock()
+    private var models: Set<String> = []
+
+    func contains(_ model: String) -> Bool { lock.withLock { models.contains(model) } }
+    func insert(_ model: String) { lock.withLock { _ = models.insert(model) } }
+    func removeAll() { lock.withLock { models.removeAll() } }
 }
 
 /// Ollama's native `/api/chat`. Unlike its OpenAI-compatible endpoint it has a real switch for
@@ -214,7 +231,8 @@ public struct OllamaChat: ChatModel {
     public func complete(system: String, user: String, maxTokens: Int, timeout: TimeInterval) async throws -> String {
         if skipIfNotLoaded, await isLoaded() == false { throw ChatError.modelNotLoaded(model) }
         do {
-            return try await send(system: system, user: user, maxTokens: maxTokens, timeout: timeout, think: false)
+            return try await send(system: system, user: user, maxTokens: maxTokens, timeout: timeout,
+                                  think: ThinkingModels.shared.contains(model))
         } catch let error as APIError where error.status == 400 && error.message.lowercased().contains("think") {
             // An older Ollama that does not know the switch.
             return try await send(system: system, user: user, maxTokens: maxTokens, timeout: timeout, think: nil)
@@ -247,7 +265,7 @@ public struct OllamaChat: ChatModel {
         return ChatStream.run { yield in
             do {
                 try await chat.streamLines(system: system, user: user, maxTokens: maxTokens, temperature: temperature,
-                                           timeout: timeout, think: false, yield: yield)
+                                           timeout: timeout, think: ThinkingModels.shared.contains(chat.model), yield: yield)
             } catch let error as APIError where error.status == 400 && error.message.lowercased().contains("think") {
                 try await chat.streamLines(system: system, user: user, maxTokens: maxTokens, temperature: temperature,
                                            timeout: timeout, think: nil, yield: yield)
@@ -266,10 +284,18 @@ public struct OllamaChat: ChatModel {
             let error: String?
             let done: Bool?
         }
+        var sawThinking = false
         for try await line in try await HTTP.lines(request, client: client, service: "Ollama") {
             guard let chunk = try? JSONDecoder().decode(Chunk.self, from: Data(line.utf8)) else { continue }
             if let error = chunk.error { throw APIError(service: "Ollama", status: 500, message: error) }
-            if let text = chunk.message?.content, !text.isEmpty { yield(text) }
+            // With think: true Ollama sends the reasoning separately (message.thinking); only the answer is yielded.
+            if let text = chunk.message?.content, !text.isEmpty {
+                if think == false, !sawThinking, ChatText.hasUnparsedThinking(text) {
+                    sawThinking = true
+                    ThinkingModels.shared.insert(model)
+                }
+                yield(text)
+            }
             if chunk.done == true { break }
         }
     }
@@ -305,7 +331,9 @@ public struct OllamaChat: ChatModel {
         guard let response = try? JSONDecoder().decode(Response.self, from: data) else {
             throw TranscriptionError.badResponse(String(decoding: data.prefix(200), as: UTF8.self))
         }
-        return ChatText.stripThinking(response.message.content ?? "")
+        let content = response.message.content ?? ""
+        if think == false, ChatText.hasUnparsedThinking(content) { ThinkingModels.shared.insert(model) }
+        return ChatText.stripThinking(content)
     }
 }
 

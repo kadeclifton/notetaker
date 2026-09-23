@@ -93,6 +93,10 @@ final class ComposeStyleTests: XCTestCase {
         XCTAssertEqual(ComposePrompt.visible("<think>plan</think>\n\nHello"), "Hello")
         XCTAssertEqual(ComposePrompt.visible("  Hello\n"), "Hello")
         XCTAssertEqual(ComposePrompt.visible("<transcript>\nHello\n</transcript>"), "Hello")
+        // A "thinking" build: its template opens the block, so only the closing tag arrives.
+        XCTAssertEqual(ComposePrompt.visible("Okay, the user wants me to transform…\nWait, keep \"Hopefully\".\n</think>\n\nThis is a test. Hopefully it works."),
+                       "This is a test. Hopefully it works.")
+        XCTAssertEqual(ComposePrompt.visible("<think>a</think>draft </think> Final."), "Final.", "the last closing tag wins")
     }
 }
 
@@ -279,5 +283,55 @@ final class LibraryTests: XCTestCase {
 
         try store.delete(first)
         XCTAssertEqual(store.list().map(\.id), [second.id])
+    }
+}
+
+final class ThinkingModelTests: XCTestCase {
+    override func setUp() { ThinkingModels.shared.removeAll() }
+    override func tearDown() { ThinkingModels.shared.removeAll() }
+
+    func collect(_ stream: AsyncThrowingStream<String, Error>) async throws -> [String] {
+        var all: [String] = []
+        for try await text in stream { all.append(text) }
+        return all
+    }
+
+    func testReasoningWithoutAnOpeningTagIsNotInserted() async throws {
+        let client = FakeHTTPClient { _ in
+            (200, [#"{"message":{"content":"Okay, the user wants"},"done":false}"#,
+                   #"{"message":{"content":" a test.\n</think>\n\n"},"done":false}"#,
+                   #"{"message":{"content":"This is a test."},"done":false}"#,
+                   #"{"message":{"content":""},"done":true}"#].joined(separator: "\n"))
+        }
+        let chat = OllamaChat(model: "qwen3:30b-thinking-test", client: client)
+        let updates = try await collect(Composer(chat: chat).write("x", style: .auto, context: CleanupContext()))
+        XCTAssertEqual(updates.last, "This is a test.")
+        XCTAssertEqual(jsonBody(client.requests[0])["think"] as? Bool, false)
+
+        // Seen reasoning anyway: next time Ollama is asked to separate it.
+        _ = try await collect(Composer(chat: chat).write("x", style: .auto, context: CleanupContext()))
+        XCTAssertEqual(jsonBody(client.requests[1])["think"] as? Bool, true)
+    }
+
+    func testSeparatedReasoningIsIgnored() async throws {
+        ThinkingModels.shared.insert("qwen3:30b-thinking-test")
+        let client = FakeHTTPClient { _ in
+            (200, [#"{"message":{"thinking":"Okay, the user","content":""},"done":false}"#,
+                   #"{"message":{"thinking":" wants a test.","content":""},"done":false}"#,
+                   #"{"message":{"content":"This is a test."},"done":false}"#,
+                   #"{"message":{"content":""},"done":true}"#].joined(separator: "\n"))
+        }
+        let chat = OllamaChat(model: "qwen3:30b-thinking-test", client: client)
+        let updates = try await collect(Composer(chat: chat).write("x", style: .auto, context: CleanupContext()))
+        XCTAssertEqual(updates, ["This is a test."])
+    }
+
+    func testCleanupStripsItToo() async throws {
+        let client = FakeHTTPClient { _ in (200, #"{"message":{"content":"Reasoning here.\n</think>\nHi there."}}"#) }
+        let chat = OllamaChat(model: "qwen3:30b-thinking-test", client: client)
+        let reply = try await chat.complete(system: "s", user: "u", maxTokens: 8, timeout: 5)
+        XCTAssertEqual(reply, "Hi there.")
+        XCTAssertTrue(ThinkingModels.shared.contains("qwen3:30b-thinking-test"))
+        XCTAssertFalse(ThinkingModels.shared.contains("qwen3:4b"), "other models keep thinking off")
     }
 }
