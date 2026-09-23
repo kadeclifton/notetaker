@@ -375,7 +375,11 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The download is `Murmur-v0.1.0.zip` (Apple Silicon, macOS 14+).
+Each release has `Murmur-vX.dmg`, a disk image that opens as a window with the app and an
+Applications folder to drag it onto (for first installs), and `Murmur-vX.zip` (used by the in-app
+updater). Both are Apple Silicon, macOS 14+. `scripts/make-dmg.sh` builds the disk image locally
+after `scripts/build-app.sh` (`brew install create-dmg` for the window layout;
+`scripts/make-dmg-background.py` redraws its background).
 
 **Signing and notarization.** With an Apple Developer account, releases are signed with your
 Developer ID and notarized, so friends just unzip and open, and permissions survive updates. Set up

@@ -35,6 +35,17 @@ jobs:
           xcrun assetutil --info build/Murmur.app/Contents/Resources/Assets.car | grep -i -E 'appearance|AppIcon' | sort -u | head -20
           lipo -archs build/Murmur.app/Contents/MacOS/Murmur | grep -qx arm64
           plutil -extract CFBundleShortVersionString raw build/Murmur.app/Contents/Info.plist | grep -qx 0.0.0-ci
+      - name: Make the disk image
+        run: |
+          brew install create-dmg || true
+          scripts/make-dmg.sh build/Murmur-ci.dmg
+          hdiutil verify build/Murmur-ci.dmg
+          MOUNT="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT" build/Murmur-ci.dmg >/dev/null
+          test -d "$MOUNT/Murmur.app"
+          test -L "$MOUNT/Applications"
+          ls -la "$MOUNT"
+          hdiutil detach "$MOUNT" >/dev/null
 
   signing:
     # scripts/setup-signing.sh on a real Mac: the certificate must be usable by codesign, and two

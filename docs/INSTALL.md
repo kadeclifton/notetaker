@@ -48,9 +48,11 @@ to copy them.)
 
 ## 2. Install Murmur
 
-1. Download **Murmur-….zip** from the release page and double-click it to unzip.
-2. Drag **Murmur** into your **Applications** folder.
-3. Open Murmur. macOS may ask once whether to open an app downloaded from the internet; click **Open**.
+1. Download **Murmur-….dmg** from the release page (under **Assets**) and double-click it.
+2. A window opens: drag the **Murmur** icon onto the **Applications** folder next to it.
+3. Close the window, and eject the "Murmur" disk in Finder's sidebar (or drag it to the Trash).
+4. Open Murmur from Applications (or ⌘Space, "Murmur"). macOS may ask once whether to open an app
+   downloaded from the internet; click **Open**.
 
    Only if macOS says it "can't be opened" or "is damaged" (older, unsigned releases): run this
    in Terminal, then open it again.
@@ -59,7 +61,7 @@ to copy them.)
    xattr -dr com.apple.quarantine /Applications/Murmur.app
    ```
 
-4. Once Murmur is open, its wave icon appears in the menu bar (there is no Dock icon), and a setup window opens.
+5. Once Murmur is open, its wave icon appears in the menu bar (there is no Dock icon), and a setup window opens.
 
 ## 3. Finish setup
 
