@@ -1,0 +1,39 @@
+name: Release
+
+# Push a tag like v0.1.0 to build Murmur and publish it as a GitHub Release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # macOS 26: needed to compile the light/dark/clear/tinted app icon (see ci.yml).
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode (26+ compiles the dark and tinted icon)
+        run: |
+          XCODE="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -n "$XCODE" ]; then sudo xcode-select -s "$XCODE"; fi
+          xcodebuild -version
+      - name: Test
+        run: swift test
+      - name: Build the app
+        run: MURMUR_VERSION="$GITHUB_REF_NAME" MURMUR_BUILD="$GITHUB_RUN_NUMBER" scripts/build-app.sh
+      - name: Check the bundle
+        run: |
+          codesign --verify --verbose build/Murmur.app
+          test -s build/Murmur.app/Contents/Resources/Assets.car
+          lipo -archs build/Murmur.app/Contents/MacOS/Murmur | grep -qx arm64
+          plutil -extract CFBundleShortVersionString raw build/Murmur.app/Contents/Info.plist | grep -qx "${GITHUB_REF_NAME#v}"
+      - name: Zip
+        run: ditto -c -k --keepParent build/Murmur.app "Murmur-$GITHUB_REF_NAME.zip"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "Murmur-$GITHUB_REF_NAME.zip" \
+            --title "Murmur $GITHUB_REF_NAME" --notes-file docs/INSTALL.md --verify-tag

@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  macos:
+    # Icon Composer icons only compile on macOS 26: Xcode 26's asset compiler on macOS 15 crashes
+    # for lack of system frameworks that shipped with macOS 26.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode (26+ compiles the dark and tinted icon)
+        run: |
+          XCODE="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -n "$XCODE" ]; then sudo xcode-select -s "$XCODE"; fi
+          xcodebuild -version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+      - name: Package the app
+        run: MURMUR_VERSION=v0.0.0-ci scripts/build-app.sh
+      - name: Check the bundle
+        run: |
+          plutil -lint build/Murmur.app/Contents/Info.plist
+          codesign --verify --verbose build/Murmur.app
+          test -x build/Murmur.app/Contents/MacOS/Murmur
+          test -s build/Murmur.app/Contents/Resources/AppIcon.icns
+          test "$(plutil -extract CFBundleIconFile raw build/Murmur.app/Contents/Info.plist)" = AppIcon
+          test -s build/Murmur.app/Contents/Resources/Assets.car
+          xcrun assetutil --info build/Murmur.app/Contents/Resources/Assets.car | grep -i -E 'appearance|AppIcon' | sort -u | head -20
+          lipo -archs build/Murmur.app/Contents/MacOS/Murmur | grep -qx arm64
+          plutil -extract CFBundleShortVersionString raw build/Murmur.app/Contents/Info.plist | grep -qx 0.0.0-ci
+
+  signing:
+    # scripts/setup-signing.sh on a real Mac: the certificate must be usable by codesign, and two
+    # separate builds must get the same designated requirement (that is what keeps permissions).
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create a throwaway keychain
+        run: |
+          security create-keychain -p ci "$RUNNER_TEMP/ci.keychain-db"
+          security set-keychain-settings "$RUNNER_TEMP/ci.keychain-db"
+          security unlock-keychain -p ci "$RUNNER_TEMP/ci.keychain-db"
+          security list-keychains -d user -s "$RUNNER_TEMP/ci.keychain-db" $(security list-keychains -d user | tr -d '"')
+      - name: Set up signing
+        run: MURMUR_KEYCHAIN="$RUNNER_TEMP/ci.keychain-db" MURMUR_TRUST=admin scripts/setup-signing.sh
+      - name: Setting up again is a no-op
+        run: MURMUR_KEYCHAIN="$RUNNER_TEMP/ci.keychain-db" MURMUR_TRUST=admin scripts/setup-signing.sh
+      - name: Two builds keep the same signature requirement
+        run: |
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k ci "$RUNNER_TEMP/ci.keychain-db" >/dev/null
+          scripts/build-app.sh | tee build1.log
+          grep -q 'signed with "Murmur Dev"' build1.log
+          codesign -d -r- build/Murmur.app 2>&1 | grep designated | tee req1.txt
+          grep -q 'certificate leaf' req1.txt
+          touch Sources/Murmur/App.swift
+          scripts/build-app.sh
+          codesign -d -r- build/Murmur.app 2>&1 | grep designated > req2.txt
+          diff req1.txt req2.txt
+          codesign --verify --verbose build/Murmur.app
+
+  linux:
+    runs-on: ubuntu-latest
+    container: swift:6.1-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test the platform-independent core
+        run: swift test
