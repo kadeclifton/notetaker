@@ -155,9 +155,12 @@ public enum ComposePrompt {
     /// The part of a partial reply worth showing: no reasoning block, no wrapper.
     public static func visible(_ partial: String) -> String {
         var text = partial
-        if let open = text.range(of: "<think>") {
-            guard let close = text.range(of: "</think>"), close.lowerBound > open.lowerBound else { return "" }
+        if let close = text.range(of: "</think>", options: .backwards) {
+            // Everything up to the reasoning's end. "Thinking" builds (Qwen3 2507) open the block
+            // in their prompt template, so the reply has only the closing tag.
             text = String(text[close.upperBound...])
+        } else if text.contains("<think>") {
+            return ""
         }
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.hasPrefix("<transcript>") { text.removeFirst("<transcript>".count) }
