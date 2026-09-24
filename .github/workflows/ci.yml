@@ -46,6 +46,7 @@ jobs:
           plutil -extract CFBundleShortVersionString raw build/Murmur.app/Contents/Info.plist | grep -qx 0.0.0-ci
       - name: Check the bundled whisper.cpp
         run: |
+          du -sh build/Murmur.app build/Murmur.app/Contents/MacOS/*
           codesign --verify --deep --strict --verbose build/Murmur.app
           for bin in whisper-server whisper-cli; do
             test -x "build/Murmur.app/Contents/MacOS/$bin"

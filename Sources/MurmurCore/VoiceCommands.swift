@@ -37,6 +37,33 @@ public enum VoiceCommands {
         undoPhrases.contains(normalize(transcript))
     }
 
+    /// "new line" and "new paragraph" said while dictating become line breaks. Whisper writes them
+    /// as words with its own punctuation around them ("…today. New paragraph. Next…"), which goes.
+    public static func applyFormatting(_ text: String) -> String {
+        guard text.range(of: "new (line|paragraph)", options: [.regularExpression, .caseInsensitive]) != nil else { return text }
+        var result = text
+        for (phrase, breaks) in [("paragraph", "\n\n"), ("line", "\n")] {
+            let pattern = "[ ,;:]*\\b[Nn]ew \(phrase)\\b[.,;:!]?[ ]*"
+            result = result.replacingOccurrences(of: pattern, with: breaks, options: [.regularExpression, .caseInsensitive])
+        }
+        // Capitalize what follows each break, and never start or end with one.
+        var out = ""
+        var capitalizeNext = false
+        for ch in result {
+            if ch == "\n" {
+                capitalizeNext = true
+                out.append(ch)
+            } else if capitalizeNext, ch.isLetter {
+                out += ch.uppercased()
+                capitalizeNext = false
+            } else {
+                if !ch.isWhitespace { capitalizeNext = false }
+                out.append(ch)
+            }
+        }
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// The utterance ends in "scratch that": you changed your mind mid-sentence, so nothing is inserted.
     public static func isScratched(_ transcript: String) -> Bool {
         let said = normalize(transcript)

@@ -42,6 +42,8 @@ BIN="$(swift build -c release --arch arm64 --show-bin-path)/Murmur"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Murmur"
+# Local symbols are only for debugging; crash reports still name the app's own functions.
+strip -x "$APP/Contents/MacOS/Murmur"
 WHISPER_BIN="$ROOT/build/whisper/bin"
 HELPERS=()
 if [[ -x "$WHISPER_BIN/whisper-server" && -x "$WHISPER_BIN/whisper-cli" ]]; then

@@ -120,8 +120,8 @@ final class LocalModelChoiceTests: XCTestCase {
     }
 
     func testPipelineReportsTimings() async throws {
-        let pipeline = DictationPipeline(transcriber: FakeTranscriber(text: "hello there"),
-                                         cleaner: FakeCleaner { _ in "Hello there." }, language: nil, prompt: nil)
+        let pipeline = DictationPipeline(transcriber: FakeTranscriber(text: "hello there how are you"),
+                                         cleaner: FakeCleaner { _ in "Hello there, how are you?" }, language: nil, prompt: nil)
         let result = try await pipeline.run(samples: [Float](repeating: 0.1, count: 16_000), context: CleanupContext())
         XCTAssertGreaterThanOrEqual(result.transcribeSeconds, 0)
         XCTAssertNotNil(result.cleanupSeconds)

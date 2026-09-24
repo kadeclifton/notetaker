@@ -143,7 +143,8 @@ Click the wave in the menu bar:
   Automatic picks the best one that fits your Mac); snippets; meeting options; version and diagnostics.
   Picking a specific microphone helps in clamshell mode with a webcam or display mic; a silent
   recording names the mic it listened to, and quiet mics are boosted (up to +26 dB).
-- **⬆︎ Update to v…** appears at the top when a newer release is published.
+- **An update is available · Restart to Update** appears just above Quit once a newer release has
+  downloaded in the background.
 
 ## Using it
 
@@ -209,7 +210,13 @@ reasoning regardless) when another model fits, since they spend 20 to 40 seconds
 Silent recordings are dropped before transcription, since Whisper tends to invent text
 ("Thanks for watching!") for silence.
 
-**Speed.** With the local model, Murmur keeps `whisper-server` (shipped inside Murmur.app, or
+**Speed.** Recordings longer than about 20 seconds are transcribed in pieces while you talk (cut at
+pauses, each piece given the end of the last as context), so letting go only leaves the last piece.
+Silence before the first word and after the last is trimmed before transcription. Phrases under four
+words skip cleanup (it would only cost time). Saying "new line" or "new paragraph" breaks lines in
+dictate and clean modes.
+
+With the local model, Murmur keeps `whisper-server` (shipped inside Murmur.app, or
 Homebrew's) running in the background with the model loaded, so a dictation only waits for the transcription
 itself, not a model load. The very first transcription after installing is still slow: macOS compiles
 Whisper's GPU code once. Set `whisperCpp.keepModelLoaded` to `false` to go back to running
@@ -433,9 +440,9 @@ For people to download it, the repository has to be public, or they need to be a
 
 **Updates.** Murmur asks GitHub for the latest release shortly after launch and every six hours
 (`updates.checkAutomatically`; only the public release list is fetched). When there is a newer
-one, the menu offers **Update to v…**: it downloads the zip, installs only if the new app is signed
-with the same Developer ID Team as the running one, intact (`codesign --verify`) and notarized
-(`spctl`), swaps it in place and relaunches. Copies not signed with a Developer ID (local ad-hoc or
+one, it downloads the zip in the background and checks that the new app is signed with the same
+Developer ID Team as the running one, intact (`codesign --verify`) and notarized (`spctl`). The menu
+then shows **Restart to Update** above Quit: one click swaps it in place and relaunches. Copies not signed with a Developer ID (local ad-hoc or
 "Murmur Dev" builds) get a link to the release page instead.
 
 **Which speech model on which Mac.** **Settings… → Speech → Speech model** switches between the three the setup

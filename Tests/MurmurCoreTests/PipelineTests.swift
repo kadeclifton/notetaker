@@ -187,10 +187,10 @@ final class PipelineTests: XCTestCase {
 
     func testCleanupFailureFallsBackToTranscript() async throws {
         struct Offline: Error {}
-        let pipeline = DictationPipeline(transcriber: FakeTranscriber(text: "hello there"),
+        let pipeline = DictationPipeline(transcriber: FakeTranscriber(text: "hello there how are you"),
                                          cleaner: FakeCleaner { _ in throw Offline() }, language: nil, prompt: nil)
         let result = try await pipeline.run(samples: speech, context: CleanupContext())
-        XCTAssertEqual(result.text, "hello there")
+        XCTAssertEqual(result.text, "hello there how are you")
         XCTAssertNotNil(result.cleanupProblem)
     }
 
@@ -214,7 +214,7 @@ final class PipelineTests: XCTestCase {
 
     func testCancellingDuringCleanupThrows() async {
         let pipeline = DictationPipeline(
-            transcriber: FakeTranscriber(text: "hello"),
+            transcriber: FakeTranscriber(text: "hello there how are you"),
             cleaner: FakeCleaner { _ in try await Task.sleep(nanoseconds: 5_000_000_000); return "Hello." },
             language: nil, prompt: nil)
         let task = Task { try await pipeline.run(samples: speech, context: CleanupContext()) }

@@ -1,0 +1,11 @@
+# Murmur has no package dependencies; the only third-party code CI runs is GitHub Actions.
+# Dependabot opens one grouped pull request a month when any of them has a new version.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

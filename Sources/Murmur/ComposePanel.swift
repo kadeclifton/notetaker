@@ -73,7 +73,8 @@ final class ComposeController: NSObject, NSWindowDelegate {
 
     var isShowing: Bool { panel?.isVisible ?? false }
 
-    func start(samples: [Float], setup: Setup, context: CleanupContext, target: NSRunningApplication?) {
+    func start(samples: [Float], early: Task<IncrementalTranscription?, Never>? = nil, setup: Setup,
+               context: CleanupContext, target: NSRunningApplication?) {
         dismiss()
         let session = ComposeSession(context: context, target: target)
         session.modelName = setup.composer?.name ?? "no model"
@@ -82,7 +83,7 @@ final class ComposeController: NSObject, NSWindowDelegate {
         show(session)
         task = Task { [weak self] in
             do {
-                let result = try await setup.pipeline.run(samples: samples, context: context)
+                let result = try await setup.pipeline.run(samples: samples, incremental: await early?.value, context: context)
                 guard let self, self.session === session, !Task.isCancelled else { return }
                 guard !result.transcript.isEmpty else {
                     session.phase = .failed("No speech heard.")

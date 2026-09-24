@@ -13,24 +13,45 @@ final class CallWatcher {
     var onNeverAsk: (() -> Void)?
 
     private var detector = CallDetector()
+    /// Only runs while a microphone is in use, to see it stay busy for a few seconds.
     private var timer: Timer?
+    private var stopObservingDevices: (() -> Void)?
+    private var stopObservingUse: (() -> Void)?
     private var panel: NSPanel?
     private var closeTimer: Timer?
 
+    /// Nothing runs while no microphone is in use: macOS tells Murmur when one starts.
     func setEnabled(_ enabled: Bool) {
         timer?.invalidate()
         timer = nil
+        stopObservingDevices?()
+        stopObservingDevices = nil
+        stopObservingUse?()
+        stopObservingUse = nil
         detector = CallDetector()
         guard enabled else { dismiss(); return }
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.poll() }
-        }
+        stopObservingDevices = AudioDevices.observeChanges { [weak self] in self?.observeMicrophones() }
+        observeMicrophones()
+    }
+
+    private func observeMicrophones() {
+        stopObservingUse?()
+        stopObservingUse = AudioDevices.observeInUse(AudioDevices.inputs()) { [weak self] in self?.poll() }
+        poll()
     }
 
     private func poll() {
         let murmur = isMurmurRecording()
-        // Checking the mic costs a little; skip it while Murmur itself records.
         let busy = murmur || AudioDevices.anyInputInUse()
+        // Keep looking every 2 s only while the mic is busy, until the offer is made or it goes quiet.
+        if busy, timer == nil {
+            timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.poll() }
+            }
+        } else if !busy {
+            timer?.invalidate()
+            timer = nil
+        }
         var apps = NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)
         if let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier {
             apps.removeAll { $0 == front }

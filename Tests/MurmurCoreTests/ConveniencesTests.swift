@@ -109,8 +109,8 @@ final class PipelineStageTests: XCTestCase {
 
     func testReportsCleanupOnlyWhenItRuns() async throws {
         let stages = Stages()
-        let clean = DictationPipeline(transcriber: FakeTranscriber(text: "hello there"),
-                                      cleaner: FakeCleaner { _ in "Hello there." }, language: nil, prompt: nil)
+        let clean = DictationPipeline(transcriber: FakeTranscriber(text: "hello there how are you"),
+                                      cleaner: FakeCleaner { _ in "Hello there, how are you?" }, language: nil, prompt: nil)
         _ = try await clean.run(samples: [0.1, 0.2], context: CleanupContext()) { stages.add($0) }
         XCTAssertEqual(stages.list, [.cleaningUp])
         let raw = DictationPipeline(transcriber: FakeTranscriber(text: "hello"), cleaner: nil, language: nil, prompt: nil)
