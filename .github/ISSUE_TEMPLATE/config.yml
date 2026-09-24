@@ -1,0 +1,6 @@
+# Issues go through the forms above, which keeps drive-by spam out.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/kadeclifton/notetaker/security/advisories/new
+    about: Please don't post security issues publicly.

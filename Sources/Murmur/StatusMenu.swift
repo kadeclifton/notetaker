@@ -441,7 +441,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         alert.window.initialFirstResponder = say
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        controller.addSnippet(Snippet(say: say.stringValue, insert: text.stringValue))
+        if let problem = controller.addSnippet(Snippet(say: say.stringValue, insert: text.stringValue)) {
+            showAlert(problem)
+        }
     }
 
     @objc private func insertSnippet(_ sender: NSMenuItem) {

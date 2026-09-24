@@ -17,6 +17,8 @@ jobs:
           XCODE="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
           if [ -n "$XCODE" ]; then sudo xcode-select -s "$XCODE"; fi
           xcodebuild -version
+      - name: Check links in the docs
+        run: python3 scripts/check-links.py
       - name: Build
         run: swift build
       - name: Test

@@ -105,7 +105,14 @@ final class SettingsModel: ObservableObject {
 
     // MARK: Snippets
 
+    /// The first row that cannot be saved, as a message for the Snippets tab.
+    var snippetProblem: String? {
+        snippets.lazy.map(\.snippet).filter { !($0.say.isEmpty && $0.insert.isEmpty) }
+            .compactMap(VoiceCommands.problem(with:)).first
+    }
+
     func saveSnippets() {
+        guard snippetProblem == nil else { return }
         controller.setSnippets(snippets.map(\.snippet))
         loadedSnippets = controller.snippets
         snippets = loadedSnippets.map(SnippetDraft.init)
@@ -434,10 +441,14 @@ private struct SnippetsTab: View {
             HStack {
                 Button("Add Snippet") { model.snippets.append(SnippetDraft(Snippet(say: "", insert: ""))) }
                 Spacer()
-                if model.snippetsChanged { Text("Not saved yet").font(.caption).foregroundStyle(.secondary) }
+                if let problem = model.snippetProblem {
+                    Text(problem).font(.caption).foregroundStyle(.red)
+                } else if model.snippetsChanged {
+                    Text("Not saved yet").font(.caption).foregroundStyle(.secondary)
+                }
                 Button("Save") { model.saveSnippets() }
                     .keyboardShortcut("s")
-                    .disabled(!model.snippetsChanged)
+                    .disabled(!model.snippetsChanged || model.snippetProblem != nil)
             }
         }
     }
@@ -483,6 +494,11 @@ private struct AboutTab: View {
         Form {
             Section {
                 LabeledContent("Version", value: c.updater.currentVersion)
+                HStack(spacing: 16) {
+                    Link("Privacy", destination: URL(string: "https://github.com/kadeclifton/notetaker/blob/main/PRIVACY.md")!)
+                    Link("Report a Problem", destination: URL(string: "https://github.com/kadeclifton/notetaker/issues/new/choose")!)
+                }
+                .font(.callout)
                 HStack {
                     Button("Check for Updates") { Task { await c.updater.check(userInitiated: true); model.refresh() } }
                     if let release = c.updater.available {

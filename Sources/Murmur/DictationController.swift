@@ -531,11 +531,14 @@ final class DictationController {
         }
     }
 
-    func addSnippet(_ snippet: Snippet) {
-        guard !snippet.say.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    /// Nil when saved, else what is wrong with it.
+    @discardableResult
+    func addSnippet(_ snippet: Snippet) -> String? {
+        if let problem = VoiceCommands.problem(with: snippet) { return problem }
         // Saying the same phrase again replaces its text.
         let key = VoiceCommands.normalize(snippet.say)
         setSnippets(snippets.filter { VoiceCommands.normalize($0.say) != key } + [snippet])
+        return nil
     }
 
     /// From the menu: types the snippet into the app that was in front.
