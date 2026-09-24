@@ -6,13 +6,14 @@ import MurmurCore
 /// What the floating pill shows.
 enum PillPhase: Equatable {
     case recording(RecordingMode)
-    case processing
+    /// "Transcribing", then "Cleaning up".
+    case processing(String)
     case message(String, isError: Bool)
 }
 
 @MainActor
 final class PillModel: ObservableObject {
-    @Published var phase: PillPhase = .processing
+    @Published var phase: PillPhase = .processing("Transcribing")
     @Published var elapsed: TimeInterval = 0
     @Published var remaining: TimeInterval = 300
     @Published var level: Float = 0
@@ -131,9 +132,9 @@ struct PillView: View {
             }
             Text("tap \(model.hotkeyName) to finish").foregroundStyle(.white.opacity(0.45))
 
-        case .processing:
+        case let .processing(step):
             ProgressView().controlSize(.small).tint(.white).scaleEffect(0.7).frame(width: 12, height: 12)
-            Text("Transcribing")
+            Text(step)
             Text("esc to cancel").foregroundStyle(.white.opacity(0.45))
 
         case let .message(text, isError):

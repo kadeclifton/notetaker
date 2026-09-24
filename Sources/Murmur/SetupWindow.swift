@@ -46,6 +46,7 @@ final class SetupWindowController {
         }
         model.usesLocalWhisper = controller.usesLocalWhisper
         model.whisperInstalled = controller.whisperInstalled
+        model.homebrewInstalled = Homebrew.isInstalled
         model.modelInstalled = controller.whisperModelInstalled
         model.currentModel = controller.currentWhisperModel
         model.microphone = Permissions.microphone == .authorized
@@ -55,6 +56,15 @@ final class SetupWindowController {
         model.cleanup = controller.cleanerName
         model.compose = controller.composerName
         model.localLLM = controller.localLLM.map { "\($0.server): \($0.models.joined(separator: ", "))" }
+        model.launchAtLogin = LoginItem.isEnabled
+        if model.ready && !UserDefaults.standard.bool(forKey: "setupCompleted") {
+            // First time everything works: start at login from now on (a switch below turns it
+            // off), and show the cheat sheet once.
+            UserDefaults.standard.set(true, forKey: "setupCompleted")
+            try? LoginItem.set(true)
+            model.launchAtLogin = LoginItem.isEnabled
+            controller.showHowToOnce()
+        }
     }
 }
 
@@ -62,6 +72,7 @@ final class SetupWindowController {
 final class SetupModel: ObservableObject {
     @Published var usesLocalWhisper = true
     @Published var whisperInstalled = false
+    @Published var homebrewInstalled = true
     @Published var modelInstalled = false
     @Published var currentModel: WhisperModelOption?
     @Published var microphone = false
@@ -71,6 +82,7 @@ final class SetupModel: ObservableObject {
     @Published var cleanup = "off"
     @Published var compose = "off"
     @Published var localLLM: String?
+    @Published var launchAtLogin = false
 
     var ready: Bool {
         (!usesLocalWhisper || (whisperInstalled && modelInstalled)) && microphone && accessibility && inputMonitoring
@@ -81,9 +93,19 @@ final class SetupModel: ObservableObject {
 struct SetupActions {
     let controller: DictationController
 
-    func copyBrewCommand() {
+    /// Without Homebrew: install it, make `brew` work in new Terminal windows, then install whisper.cpp,
+    /// all in one paste. With Homebrew: just whisper.cpp.
+    func copyInstallCommand(homebrewInstalled: Bool) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("brew install whisper-cpp", forType: .string)
+        NSPasteboard.general.setString(homebrewInstalled ? Homebrew.whisperCommand : Homebrew.everythingCommand, forType: .string)
+    }
+
+    func openTerminal() {
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
+    }
+
+    func openHomebrewSite() {
+        NSWorkspace.shared.open(URL(string: "https://brew.sh")!)
     }
 
     func recheck() { controller.reloadConfig() }
@@ -109,6 +131,12 @@ struct SetupActions {
     }
 
     func resetPermissions() { controller.resetPermissions() }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        try? LoginItem.set(enabled)
+    }
+
+    func showHowTo() { controller.showHowTo() }
     func relaunch() { controller.relaunch() }
     func openSettingsFile() { NSWorkspace.shared.open(AppPaths.configFile) }
 }
@@ -117,7 +145,7 @@ struct SetupView: View {
     @ObservedObject var model: SetupModel
     @ObservedObject var downloader: ModelDownloader
     let actions: SetupActions
-    @State private var choice: WhisperModelOption = .small
+    @State private var choice: WhisperModelOption = .recommended()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -129,10 +157,24 @@ struct SetupView: View {
             }
 
             if model.usesLocalWhisper {
-                step(done: model.whisperInstalled, title: "Install whisper.cpp",
-                     detail: "The speech recognizer. In Terminal, run  brew install whisper-cpp") {
-                    Button("Copy Command") { actions.copyBrewCommand() }
-                    Button("Check Again") { actions.recheck() }
+                if !model.whisperInstalled && !model.homebrewInstalled {
+                    step(done: false, title: "Install Homebrew and whisper.cpp",
+                         detail: "whisper.cpp, the speech recognizer, comes from Homebrew, which this Mac doesn't have yet. "
+                            + "Copy the command, open Terminal, paste it and press Return. It asks for your Mac password "
+                            + "(nothing shows as you type) and may install Apple's developer tools first; allow 10 to 15 minutes.") {
+                        Button("Copy Command") { actions.copyInstallCommand(homebrewInstalled: false) }
+                        Button("Open Terminal") { actions.openTerminal() }
+                        Button("About Homebrew") { actions.openHomebrewSite() }
+                        Button("Check Again") { actions.recheck() }
+                    }
+                } else {
+                    step(done: model.whisperInstalled, title: "Install whisper.cpp",
+                         detail: "The speech recognizer. Copy the command, open Terminal, paste it and press Return:  "
+                            + Homebrew.whisperCommand) {
+                        Button("Copy Command") { actions.copyInstallCommand(homebrewInstalled: true) }
+                        Button("Open Terminal") { actions.openTerminal() }
+                        Button("Check Again") { actions.recheck() }
+                    }
                 }
                 modelStep
             }
@@ -171,9 +213,18 @@ struct SetupView: View {
             }
 
             Spacer(minLength: 0)
+            if model.ready {
+                Toggle("Start Murmur when I log in", isOn: Binding(
+                    get: { model.launchAtLogin },
+                    set: { enabled in
+                        actions.setLaunchAtLogin(enabled)
+                        model.launchAtLogin = enabled
+                    }))
+            }
             HStack {
                 if model.ready {
                     Label("Ready. Hold \(model.hotkey) and talk.", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    Button("How to Use…") { actions.showHowTo() }
                 }
                 Spacer()
                 Button("Open Settings File") { actions.openSettingsFile() }
@@ -182,7 +233,7 @@ struct SetupView: View {
         .padding(24)
         .frame(width: 560)
         .fixedSize(horizontal: false, vertical: true)
-        .onAppear { if let current = model.currentModel { choice = current } }
+        .onAppear { if model.modelInstalled, let current = model.currentModel { choice = current } }
     }
 
     @ViewBuilder
@@ -196,7 +247,8 @@ struct SetupView: View {
         VStack(alignment: .leading, spacing: 8) {
             Picker("", selection: $choice) {
                 ForEach(WhisperModelOption.catalog) { option in
-                    Text("\(option.title): \(option.detail) · \(option.megabytes) MB").tag(option)
+                    Text("\(option.title): \(option.detail) · \(option.megabytes) MB"
+                         + (option == WhisperModelOption.recommended() ? " · recommended for this Mac" : "")).tag(option)
                 }
             }
             .pickerStyle(.radioGroup)
@@ -238,5 +290,21 @@ struct SetupView: View {
             }
         }
     }
+}
+/// Homebrew, which provides whisper.cpp.
+enum Homebrew {
+    /// Apple Silicon installs to /opt/homebrew; older setups used /usr/local.
+    static var isInstalled: Bool {
+        ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].contains { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    static let whisperCommand = "brew install whisper-cpp"
+
+    /// Homebrew's official installer, then `brew` on the PATH for this and future Terminal windows,
+    /// then whisper.cpp. Each step runs only if the one before it worked.
+    static let everythingCommand =
+        #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && "#
+        + #"(grep -q 'brew shellenv' ~/.zprofile 2>/dev/null || echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile) && "#
+        + #"eval "$(/opt/homebrew/bin/brew shellenv)" && brew install whisper-cpp"#
 }
 #endif

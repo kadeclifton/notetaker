@@ -15,7 +15,7 @@ public struct WhisperModelOption: Sendable, Hashable, Identifiable {
     public static let base = WhisperModelOption(
         id: "base.en", title: "Fastest", detail: "base.en · good for short, clear dictation · any Mac", megabytes: 142)
     public static let small = WhisperModelOption(
-        id: "small.en", title: "Balanced (recommended)", detail: "small.en · accurate and quick on any Apple Silicon Mac", megabytes: 466)
+        id: "small.en", title: "Balanced", detail: "small.en · accurate and quick on any Apple Silicon Mac", megabytes: 466)
     public static let turbo = WhisperModelOption(
         id: "large-v3-turbo-q5_0", title: "Most accurate",
         detail: "large-v3-turbo · best with names and jargon, any language · slower on a MacBook Air", megabytes: 547)

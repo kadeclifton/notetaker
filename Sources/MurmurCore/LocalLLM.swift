@@ -47,7 +47,10 @@ public struct LocalLLM: Sendable, Equatable {
             let lower = name.lowercased()
             return !Self.nonChatMarkers.contains { lower.contains($0) }
         }
-        let general = chat.filter { !isCode($0) }
+        // "Thinking" builds reason before every answer, which adds 20-40 s; use them only when
+        // nothing else will do.
+        let quick = chat.filter { !isCode($0) && !Self.alwaysThinks($0) }
+        let general = quick.isEmpty ? chat.filter { !isCode($0) } : quick
         switch purpose {
         case .cleanup:
             let small = general.filter(isSmall)
@@ -95,6 +98,11 @@ public struct LocalLLM: Sendable, Equatable {
             return smallestFirst ? sorted.first : sorted.last
         }
         return smallestFirst ? names.min { size(of: $0) < size(of: $1) } : names.first
+    }
+
+    /// A build that reasons whatever it is asked: named so, or seen doing it (ThinkingModels).
+    static func alwaysThinks(_ name: String) -> Bool {
+        name.lowercased().contains("thinking") || ThinkingModels.shared.contains(name)
     }
 
     private func isCode(_ name: String) -> Bool {

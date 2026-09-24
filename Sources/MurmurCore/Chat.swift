@@ -195,15 +195,35 @@ enum ChatText {
 }
 
 /// Ollama models seen reasoning with `think: false` ("thinking" builds that always reason). Their
-/// later requests ask Ollama to think, so it moves the reasoning out of the reply by itself.
-final class ThinkingModels: @unchecked Sendable {
-    static let shared = ThinkingModels()
+/// later requests ask Ollama to think, so it moves the reasoning out of the reply by itself, and
+/// automatic model choices prefer other models. Remembered across launches.
+public final class ThinkingModels: @unchecked Sendable {
+    public static let shared = ThinkingModels()
+    static let defaultsKey = "ollamaThinkingModels"
     private let lock = NSLock()
-    private var models: Set<String> = []
+    private let defaults: UserDefaults?
+    private var models: Set<String>
 
-    func contains(_ model: String) -> Bool { lock.withLock { models.contains(model) } }
-    func insert(_ model: String) { lock.withLock { _ = models.insert(model) } }
-    func removeAll() { lock.withLock { models.removeAll() } }
+    init(defaults: UserDefaults? = .standard) {
+        self.defaults = defaults
+        models = Set(defaults?.stringArray(forKey: Self.defaultsKey) ?? [])
+    }
+
+    public func contains(_ model: String) -> Bool { lock.withLock { models.contains(model) } }
+
+    func insert(_ model: String) {
+        lock.withLock {
+            guard models.insert(model).inserted else { return }
+            defaults?.set(models.sorted(), forKey: Self.defaultsKey)
+        }
+    }
+
+    func removeAll() {
+        lock.withLock {
+            models.removeAll()
+            defaults?.removeObject(forKey: Self.defaultsKey)
+        }
+    }
 }
 
 /// Ollama's native `/api/chat`. Unlike its OpenAI-compatible endpoint it has a real switch for

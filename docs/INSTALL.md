@@ -2,23 +2,57 @@
 
 Hold a key, talk, let go: your words appear wherever you're typing. Everything runs on your Mac.
 
-**You need:** a Mac with Apple Silicon (M1 or newer) on macOS 14 Sonoma or later, and [Homebrew](https://brew.sh).
+**You need:** a Mac with Apple Silicon (M1 or newer) on macOS 14 Sonoma or later. About 15 minutes the
+first time, mostly waiting on downloads.
 
 ## 1. Install the speech recognizer
 
-In Terminal:
+Murmur's speech recognition (whisper.cpp) is installed with [Homebrew](https://brew.sh), the usual
+way to add command-line tools to a Mac. Open **Terminal** (⌘Space, type "Terminal", press Return).
+
+**a. Check whether you already have Homebrew:**
+
+```sh
+brew --version
+```
+
+If it prints a version such as `Homebrew 4.x`, skip to **c**. If it says `command not found`, do **b**.
+
+**b. Install Homebrew.** Paste this line and press Return:
+
+```sh
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+- It asks for your Mac password. Nothing appears while you type it; that is normal. Press Return.
+- Press Return again when it says "Press RETURN to continue".
+- It may install Apple's Command Line Tools first. That can take 5 to 10 minutes.
+- At the end it prints "Next steps" with two commands. Run them, or paste these two lines, which do
+  the same thing:
+
+  ```sh
+  echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+  ```
+
+- Check that it worked: `brew --version` now prints a version.
+
+**c. Install whisper.cpp:**
 
 ```sh
 brew install whisper-cpp
 ```
 
-No Homebrew yet? Install it first with the one-line command on [brew.sh](https://brew.sh).
+That's all Terminal is needed for. (Murmur's setup window also shows these commands, with a button
+to copy them.)
 
 ## 2. Install Murmur
 
-1. Download **Murmur-….zip** from the release page and double-click it to unzip.
-2. Drag **Murmur** into your **Applications** folder.
-3. Open Murmur. macOS may ask once whether to open an app downloaded from the internet; click **Open**.
+1. Download **Murmur-….dmg** from the release page (under **Assets**) and double-click it.
+2. A window opens: drag the **Murmur** icon onto the **Applications** folder next to it.
+3. Close the window, and eject the "Murmur" disk in Finder's sidebar (or drag it to the Trash).
+4. Open Murmur from Applications (or ⌘Space, "Murmur"). macOS may ask once whether to open an app
+   downloaded from the internet; click **Open**.
 
    Only if macOS says it "can't be opened" or "is damaged" (older, unsigned releases): run this
    in Terminal, then open it again.
@@ -27,7 +61,7 @@ No Homebrew yet? Install it first with the one-line command on [brew.sh](https:/
    xattr -dr com.apple.quarantine /Applications/Murmur.app
    ```
 
-4. Once Murmur is open, its wave icon appears in the menu bar (there is no Dock icon), and a setup window opens.
+5. Once Murmur is open, its wave icon appears in the menu bar (there is no Dock icon), and a setup window opens.
 
 ## 3. Finish setup
 
@@ -51,6 +85,11 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
   from the menu). Cleanup and Compose need the optional model below.
 - **Double-tap fn** for hands-free; tap fn again to finish.
 - **Esc** cancels.
+- **Recent** (menu bar icon) holds your last 10 dictations: click one to copy it again. If you
+  finish talking with no text box selected, Murmur leaves the words on the clipboard instead of
+  losing them; press ⌘V where you want them.
+- **Vocabulary** (menu bar icon → Add Word…) teaches it names and jargon it misspells.
+- **Settings → How to Use Murmur** shows all of this on one page.
 - **Meeting Notes** (menu bar icon → Start Meeting Notes) records a call and writes notes. It asks for Screen &
   System Audio Recording the first time, to hear the other people.
 

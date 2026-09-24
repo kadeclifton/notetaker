@@ -81,28 +81,13 @@ jobs:
           echo "CODESIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
       - name: Build the app
         run: MURMUR_VERSION="$GITHUB_REF_NAME" MURMUR_BUILD="$GITHUB_RUN_NUMBER" scripts/build-app.sh
-      - name: Notarize
+      - name: Notarize the app
         if: env.SIGNED == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          ditto -c -k --keepParent build/Murmur.app "$RUNNER_TEMP/notarize.zip"
-          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --apple-id "$APPLE_ID" \
-            --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait --output-format json \
-            | tee "$RUNNER_TEMP/notary.json"
-          STATUS="$(plutil -extract status raw "$RUNNER_TEMP/notary.json" || echo unknown)"
-          if [ "$STATUS" != "Accepted" ]; then
-            ID="$(plutil -extract id raw "$RUNNER_TEMP/notary.json" || true)"
-            echo "::error::Notarization finished with status: $STATUS"
-            if [ -n "$ID" ]; then
-              xcrun notarytool log "$ID" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
-            fi
-            exit 1
-          fi
-          # Attach the ticket so the app opens even offline on first launch.
-          xcrun stapler staple build/Murmur.app
+        run: scripts/notarize.sh build/Murmur.app
       - name: Check the bundle
         run: |
           codesign --verify --strict --verbose build/Murmur.app
@@ -116,12 +101,27 @@ jobs:
             spctl --assess --type execute --verbose=2 build/Murmur.app
           fi
       - name: Zip
+        # For the in-app updater, which installs from the zip.
         run: ditto -c -k --keepParent build/Murmur.app "Murmur-$GITHUB_REF_NAME.zip"
+      - name: Make the disk image
+        # For first installs: opens as a window with the app and an Applications folder to drag it to.
+        run: |
+          brew install create-dmg || echo "::warning::create-dmg did not install; the disk image will have no background."
+          scripts/make-dmg.sh "Murmur-$GITHUB_REF_NAME.dmg"
+      - name: Notarize the disk image
+        if: env.SIGNED == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          scripts/notarize.sh "Murmur-$GITHUB_REF_NAME.dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "Murmur-$GITHUB_REF_NAME.dmg"
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "Murmur-$GITHUB_REF_NAME.zip" \
+          gh release create "$GITHUB_REF_NAME" "Murmur-$GITHUB_REF_NAME.dmg" "Murmur-$GITHUB_REF_NAME.zip" \
             --title "Murmur $GITHUB_REF_NAME" --notes-file docs/INSTALL.md --verify-tag
       - name: Remove the signing keychain
         if: always() && env.SIGNED == 'true'

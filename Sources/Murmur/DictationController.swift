@@ -19,8 +19,19 @@ final class DictationController {
     /// ⌃ / ⌃⌥ held with the hotkey during this recording; picks dictate, clean or compose.
     private var modeKeys: ModeKeys = .plain
     private var currentMode: DictationMode { config.modes.mode(for: modeKeys) }
+    /// The last few insertions, for the menu's Recent list. Memory only.
+    private(set) var recent = RecentDictations()
+    /// "Transcribing" or "Cleaning up", for the pill while jobs run.
+    private var processingStep = "Transcribing"
+    /// Stops whisper-server after a stretch without dictation (transcription.whisperCpp.unloadAfterMinutes).
+    private var idleTimer: Timer?
+
     private lazy var compose: ComposeController = {
         let compose = ComposeController(inserter: inserter)
+        compose.onDelivered = { [weak self] text, outcome in
+            self?.remember(text, mode: .compose)
+            if outcome == .copiedOnly { self?.flash("Copied: no text field to paste into. Press ⌘V where you want it.") }
+        }
         compose.onSaved = { [weak self] in self?.library.refresh() }
         compose.onMessage = { [weak self] message in self?.flash(message) }
         compose.onTiming = { [weak self] timing in
@@ -91,6 +102,8 @@ final class DictationController {
     }
 
     var isRecording: Bool { machine.isRecording }
+    /// Transcribing, cleaning up or composing: the menu bar wave pulses.
+    var isWorking: Bool { !jobs.isEmpty || compose.session?.isBusy == true }
     var hotkeyIsListening: Bool { hotkeys.isRunning }
     var hotkeyDescription: String { hotkeySpec.displayName }
 
@@ -106,7 +119,7 @@ final class DictationController {
         }
         if !Permissions.accessibility { Permissions.promptAccessibility() }
         reloadConfig()
-        if needsSetup { showSetup() }
+        if needsSetup { showSetup() } else { showHowToOnce() }
     }
 
     /// Re-reads config.json and .env and re-installs the hotkey.
@@ -138,6 +151,7 @@ final class DictationController {
         }
         detectLocalLLM()
         installHotkey()
+        scheduleIdleUnload()
         updater.configure(config.updates)
         onChange?()
     }
@@ -252,6 +266,7 @@ final class DictationController {
             }
             guard let self else { return }
             self.meeting = nil
+            self.scheduleIdleUnload()
             self.meetingStatus = nil
             self.flash("Meeting notes saved")
             self.onChange?()
@@ -389,6 +404,48 @@ final class DictationController {
         NSWorkspace.shared.open(folder)
     }
 
+    // MARK: Vocabulary
+
+    var vocabulary: [String] { config.transcription.vocabulary.filter { !$0.isEmpty } }
+
+    func addVocabulary(_ word: String) {
+        let clean = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, !vocabulary.contains(clean) else { return }
+        setVocabulary(vocabulary + [clean])
+    }
+
+    func removeVocabulary(_ word: String) {
+        setVocabulary(vocabulary.filter { $0 != word })
+    }
+
+    private func setVocabulary(_ words: [String]) {
+        do {
+            _ = try Config.loadOrCreate(at: AppPaths.configFile)
+            if try ConfigFileEdit.setVocabulary(words, in: AppPaths.configFile) {
+                reloadConfig()
+            } else {
+                fail("Could not change the vocabulary in the settings file. Edit transcription.vocabulary by hand.")
+            }
+        } catch {
+            fail("Could not update the settings file: \(error)")
+        }
+    }
+
+    // MARK: Windows
+
+    private lazy var howTo = HowToWindowController()
+
+    func showHowTo() {
+        UserDefaults.standard.set(true, forKey: "howToShown")
+        howTo.show(hotkey: hotkeyDescription, hasModes: hasModes)
+    }
+
+    /// Once, when Murmur is first ready to use.
+    func showHowToOnce() {
+        guard !UserDefaults.standard.bool(forKey: "howToShown") else { return }
+        showHowTo()
+    }
+
     func showLibrary() {
         library.show(store: LibraryStore(config: config.compose))
     }
@@ -502,6 +559,10 @@ final class DictationController {
         recordingAnnounced = false
         modeKeys = .plain
         applyMode()
+        // If the speech model was unloaded while idle, load it again while you talk.
+        idleTimer?.invalidate()
+        idleTimer = nil
+        warmWhisperServer()
         recorder.start { [weak self] error in
             guard let self, let error else { return }
             if self.machine.isRecording {
@@ -583,7 +644,12 @@ final class DictationController {
             self?.transcribe(samples, reason: reason, context: context, mode: mode, target: target)
         }
         if config.feedback.pill {
-            if mode == .compose { pill.hide() } else { pill.show(.processing) }
+            if mode == .compose {
+                pill.hide()
+            } else {
+                processingStep = "Transcribing"
+                pill.show(.processing(processingStep))
+            }
         }
     }
 
@@ -617,6 +683,7 @@ final class DictationController {
                                        insertion: config.insertion, defaultStyle: config.compose.defaultStyle),
                           context: context, target: target)
             refreshPill()
+            onChange?()
             return
         }
         let insertion = config.insertion
@@ -624,9 +691,17 @@ final class DictationController {
         let previous = lastJob
 
         let id = UUID()
+        processingStep = "Transcribing"
         let job = Task { [weak self] in
             do {
-                let result = try await pipeline.run(samples: samples, context: context)
+                let result = try await pipeline.run(samples: samples, context: context) { stage in
+                    guard stage == .cleaningUp else { return }
+                    Task { @MainActor [weak self] in
+                        guard let self, self.jobs[id] != nil else { return }
+                        self.processingStep = "Cleaning up"
+                        self.refreshPill()
+                    }
+                }
                 // Insert in dictation order: wait for the job before this one to finish.
                 await previous?.value
                 try Task.checkCancellation()
@@ -639,8 +714,13 @@ final class DictationController {
                     self.finishJob(id, message: "No speech heard")
                     return
                 }
-                await self.inserter.insert(result.text, config: insertion)
-                self.finishJob(id, message: limitNote)
+                let outcome = await self.inserter.insert(result.text, config: insertion)
+                self.remember(result.text, mode: mode)
+                if outcome == .copiedOnly {
+                    self.finishJob(id, message: "Copied: no text field to paste into. Press ⌘V where you want it.")
+                } else {
+                    self.finishJob(id, message: limitNote)
+                }
             } catch {
                 guard let self else { return }
                 self.finishJob(id, message: nil)
@@ -651,13 +731,70 @@ final class DictationController {
         jobs[id] = job
         lastJob = job
         refreshPill()
+        onChange?()
     }
 
     private func finishJob(_ id: UUID, message: String?) {
         jobs[id] = nil
-        if jobs.isEmpty { lastJob = nil }
+        if jobs.isEmpty {
+            lastJob = nil
+            scheduleIdleUnload()
+        }
         if let message { flash(message) } else { refreshPill() }
         onChange?()
+    }
+
+    // MARK: Recent
+
+    private func remember(_ text: String, mode: DictationMode) {
+        recent.add(text, mode: mode)
+        onChange?()
+    }
+
+    /// From the menu's Recent list.
+    func copyRecent(_ id: UUID) {
+        guard let item = recent.items.first(where: { $0.id == id }) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.text, forType: .string)
+        flash("Copied")
+    }
+
+    func clearRecent() {
+        recent.clear()
+        onChange?()
+    }
+
+    // MARK: Speech model memory
+
+    /// The background whisper-server, when dictation uses one.
+    private var whisperServer: WhisperServer? {
+        guard let transcriber = try? config.makeTranscriber(env: env) as? WhisperServerTranscriber else { return nil }
+        return transcriber.server as? WhisperServer
+    }
+
+    private func warmWhisperServer() {
+        guard let server = whisperServer else { return }
+        Task.detached { try? await server.ensureRunning() }
+    }
+
+    /// After a quiet stretch, stop whisper-server to give its memory back. The next hotkey press
+    /// starts it again while you talk, so the first dictation after a break is about a second slower.
+    private func scheduleIdleUnload() {
+        idleTimer?.invalidate()
+        idleTimer = nil
+        let minutes = config.transcription.whisperCpp.unloadAfterMinutes
+        guard minutes > 0, whisperServer != nil else { return }
+        idleTimer = Timer.scheduledTimer(withTimeInterval: minutes * 60, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.idleTimer = nil
+                if self.machine.isRecording || !self.jobs.isEmpty || self.meeting != nil || self.isWorking {
+                    self.scheduleIdleUnload()
+                } else {
+                    self.whisperServer?.stop()
+                }
+            }
+        }
     }
 
     private func cancelJobs(showMessage: Bool) {
@@ -692,7 +829,7 @@ final class DictationController {
         if recordingAnnounced, let mode = machine.mode {
             showRecordingPill(mode)
         } else if !jobs.isEmpty {
-            pill.show(.processing)
+            pill.show(.processing(processingStep))
         } else {
             pill.hide()
         }

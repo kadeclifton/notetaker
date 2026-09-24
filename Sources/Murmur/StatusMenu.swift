@@ -8,6 +8,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private let controller: DictationController
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
+    /// Pulses the wave while a dictation is being transcribed, cleaned up or composed.
+    private var pulseTimer: Timer?
+    private var pulseDim = false
 
     init(controller: DictationController) {
         self.controller = controller
@@ -29,14 +32,34 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             image = MenuBarIcon.image(.recording)
         } else if !controller.hotkeyIsListening || !controller.problems.isEmpty {
             image = symbol("exclamationmark.triangle")
+        } else if controller.isWorking {
+            image = MenuBarIcon.image(pulseDim ? .off : .idle)
         } else {
             image = MenuBarIcon.image(.idle)
         }
+        updatePulse()
         // While a meeting records, the menu bar shows how long it has been going.
         statusItem.button?.title = controller.meeting.map { " " + MeetingTranscript.clock($0.elapsed) } ?? ""
         statusItem.button?.image = image
         statusItem.button?.imagePosition = .imageLeft
         statusItem.button?.toolTip = controller.enabled ? "Murmur: " + controller.modesDescription : "Murmur is off"
+    }
+
+    private func updatePulse() {
+        let working = controller.isWorking && controller.enabled && !controller.isRecording && controller.meeting == nil
+        if working, pulseTimer == nil {
+            pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.pulseDim.toggle()
+                    self.updateIcon()
+                }
+            }
+        } else if !working, let timer = pulseTimer {
+            timer.invalidate()
+            pulseTimer = nil
+            pulseDim = false
+        }
     }
 
     private func symbol(_ name: String) -> NSImage? {
@@ -61,9 +84,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         addMeetingItems(to: menu)
         menu.addItem(item("Compose Library…", action: #selector(showLibrary), key: "l"))
+        menu.addItem(submenu("Recent", recentMenu()))
 
         menu.addItem(.separator())
         if controller.usesLocalWhisper { menu.addItem(submenu("Speech Model", speechModelMenu())) }
+        menu.addItem(submenu("Vocabulary", vocabularyMenu()))
         menu.addItem(submenu("Cleanup & Compose", writingMenu()))
         menu.addItem(submenu("Settings", settingsMenu()))
 
@@ -133,6 +158,51 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         return menu
     }
 
+    /// The last few things Murmur inserted; click one to copy it again. Memory only.
+    private func recentMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let items = controller.recent.items
+        if items.isEmpty {
+            menu.addItem(info("Nothing yet. Your last 10 dictations appear here."))
+            return menu
+        }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        for entry in items {
+            let marker = entry.mode == .compose ? "✦ " : ""
+            let choice = item(marker + entry.preview, action: #selector(copyRecent(_:)))
+            choice.representedObject = entry.id.uuidString
+            choice.toolTip = "\(formatter.localizedString(for: entry.date, relativeTo: Date())) · click to copy"
+            menu.addItem(choice)
+        }
+        menu.addItem(.separator())
+        menu.addItem(info("Click one to copy it. Kept only until Murmur quits."))
+        menu.addItem(item("Clear", action: #selector(clearRecent)))
+        return menu
+    }
+
+    /// Names and jargon Whisper should spell right.
+    private func vocabularyMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.addItem(item("Add Word…", action: #selector(addVocabularyWord)))
+        let words = controller.vocabulary
+        if words.isEmpty {
+            menu.addItem(info("Names and jargon Whisper keeps getting wrong"))
+        } else {
+            menu.addItem(.separator())
+            for word in words {
+                let entry = item(word, action: #selector(removeVocabularyWord(_:)))
+                entry.representedObject = word
+                entry.toolTip = "Click to remove"
+                menu.addItem(entry)
+            }
+            menu.addItem(info("Click a word to remove it"))
+        }
+        return menu
+    }
+
     private func writingMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -196,6 +266,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.addItem(item(controller.needsSetup ? "Finish Setup…" : "Setup…", action: #selector(showSetup)))
+        menu.addItem(item("How to Use Murmur…", action: #selector(showHowTo)))
         let login = item("Launch at Login", action: #selector(toggleLaunchAtLogin))
         login.state = LoginItem.isEnabled ? .on : (LoginItem.needsApproval ? .mixed : .off)
         menu.addItem(login)
@@ -350,6 +421,39 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         case .alertSecondButtonReturn: controller.updater.openReleasePage()
         default: break
         }
+    }
+
+    @objc private func copyRecent(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let id = UUID(uuidString: raw) else { return }
+        controller.copyRecent(id)
+    }
+
+    @objc private func clearRecent() {
+        controller.clearRecent()
+    }
+
+    @objc private func addVocabularyWord() {
+        let alert = NSAlert()
+        alert.messageText = "Add to Vocabulary"
+        alert.informativeText = "A name or term Whisper keeps misspelling, written the way it should appear."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.placeholderString = "e.g. Kubernetes, Siobhan, Murmur"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Add")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        controller.addVocabulary(field.stringValue)
+    }
+
+    @objc private func removeVocabularyWord(_ sender: NSMenuItem) {
+        guard let word = sender.representedObject as? String else { return }
+        controller.removeVocabulary(word)
+    }
+
+    @objc private func showHowTo() {
+        controller.showHowTo()
     }
 
     @objc private func showLibrary() {

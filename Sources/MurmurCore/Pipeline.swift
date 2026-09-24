@@ -212,7 +212,14 @@ public struct DictationPipeline: Sendable {
         return "Cleanup failed, so the raw text was inserted: \(error)"
     }
 
-    public func run(samples: [Float], context: CleanupContext) async throws -> PipelineResult {
+    /// The step a dictation is on, for the pill.
+    public enum Stage: Sendable, Equatable {
+        case transcribing
+        case cleaningUp
+    }
+
+    public func run(samples: [Float], context: CleanupContext,
+                    onStage: (@Sendable (Stage) -> Void)? = nil) async throws -> PipelineResult {
         let wav = Audio.wav(samples: samples)
         let transcribeStart = Date()
         let heard = try await transcriber.transcribe(wav: wav, language: language, prompt: prompt)
@@ -225,6 +232,7 @@ public struct DictationPipeline: Sendable {
         guard let cleaner else {
             return PipelineResult(transcript: transcript, text: transcript, cleanupProblem: nil, transcribeSeconds: transcribeSeconds)
         }
+        onStage?(.cleaningUp)
         let cleanupStart = Date()
         var result: PipelineResult
         do {
