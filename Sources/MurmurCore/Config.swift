@@ -105,6 +105,8 @@ public struct InsertionConfig: Codable, Equatable, Sendable {
     public var restoreClipboard: Bool = false
     /// How long to wait after Cmd-V before restoring the clipboard.
     public var restoreDelayMs: Int = 500
+    /// Pastes the last dictation again from anywhere. Empty: off.
+    public var pasteLastShortcut: String = "ctrl+option+v"
 
     public init() {}
 }
@@ -145,6 +147,8 @@ public struct MeetingConfig: Codable, Equatable, Sendable {
     public var summaryProvider: CleanupProvider = .auto
     public var summaryModel: String = ""
     public var summaryTimeoutSeconds: Double = 600
+    /// When the call's app lets go of the microphone, offer to stop and summarize.
+    public var offerToStopWhenCallEnds: Bool = true
     /// When a call starts (Zoom, Teams, Meet…), ask whether to take notes.
     public var offerWhenCallStarts: Bool = true
 
@@ -257,7 +261,9 @@ extension Config {
       "modes": {
         "hotkey": "dictate",
         "withControl": "clean",
-        "withControlOption": "compose"
+        "withControlOption": "compose",
+        // Select text, hold the hotkey with ⇧ and say what to change ("make this shorter").
+        "withShift": "edit"
       },
 
       "transcription": {
@@ -311,7 +317,9 @@ extension Config {
         // false: the transcript stays on the clipboard so you can paste it again.
         // true: your previous clipboard is put back after inserting.
         "restoreClipboard": false,
-        "restoreDelayMs": 500
+        "restoreDelayMs": 500,
+        // Paste your last dictation again from anywhere. "" turns it off.
+        "pasteLastShortcut": "ctrl+option+v"
       },
 
       "handsFree": {
@@ -354,7 +362,9 @@ extension Config {
         "summaryModel": "",
         "summaryTimeoutSeconds": 600,
         // Ask "Take notes?" when a call starts in Zoom, Teams, FaceTime, Meet and the like.
-        "offerWhenCallStarts": true
+        "offerWhenCallStarts": true,
+        // And "Stop and summarize?" when it ends.
+        "offerToStopWhenCallEnds": true
       },
 
       // Compose (hotkey + ⌃⌥): say it however it comes out; get it back thought through.

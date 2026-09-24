@@ -114,6 +114,42 @@ final class TextInserter {
         }
     }
 
+    // MARK: Selection
+
+    /// The text selected in the frontmost app: from Accessibility when the app reports it, else by
+    /// copying it (⌘C) and putting the clipboard back. Nil when nothing is selected.
+    func selectedText() async -> String? {
+        if case let .element(element) = Self.focus() {
+            var value: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value) == .success,
+               let text = value as? String, !text.isEmpty {
+                return text
+            }
+        }
+        let pasteboard = NSPasteboard.general
+        let saved = snapshot(pasteboard)
+        let before = pasteboard.changeCount
+        postCommand("c")
+        // Browsers and Electron apps take a moment to put the copy on the pasteboard.
+        for _ in 0..<15 where pasteboard.changeCount == before {
+            await Self.pause(milliseconds: 20)
+        }
+        let copied = pasteboard.changeCount != before ? pasteboard.string(forType: .string) : nil
+        restore(saved, to: pasteboard)
+        return copied?.isEmpty == false ? copied : nil
+    }
+
+    private func postCommand(_ character: String) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        guard let key = Self.keyCode(for: character) ?? (character == "c" ? CGKeyCode(kVK_ANSI_C) : nil) else { return }
+        for keyDown in [true, false] {
+            guard let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: keyDown) else { continue }
+            event.flags = .maskCommand
+            event.setIntegerValueField(.eventSourceUserData, value: HotkeyMonitor.syntheticEventMarker)
+            event.post(tap: .cghidEventTap)
+        }
+    }
+
     // MARK: Pasteboard
 
     private func snapshot(_ pasteboard: NSPasteboard) -> [NSPasteboardItem] {

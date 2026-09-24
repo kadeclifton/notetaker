@@ -38,12 +38,14 @@ private struct HowToView: View {
                 if hasModes {
                     row(hotkey + "⌃", "Cleaned up: no \"um\"s, proper punctuation, your words.")
                     row(hotkey + "⌃⌥", "Compose: ramble it out, and it's written up in a preview. ⏎ inserts it.")
+                    row(hotkey + "⇧", "Edit: select text, then say what to change (\"make it shorter\"). It's replaced.")
                 }
             }
 
             section("More") {
                 row("Double-tap \(hotkey)", "Hands-free: keep talking with nothing held. Tap \(hotkey) again to finish.")
                 row("Esc", "Cancel a recording, or stop one that's still being transcribed.")
+                row("⌃⌥V", "Paste your last dictation again, anywhere.")
                 row("\"New line\"", "Say \"new line\" or \"new paragraph\" to break lines while you dictate.")
                 row("\"Scratch that\"", "Say it on its own to undo the last dictation; end a sentence with it to drop that one.")
                 row("Snippets", "Say a phrase like \"my email\" and saved text goes in instead. Set them in Settings.")

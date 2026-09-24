@@ -43,6 +43,7 @@ final class DictationController {
     }()
     private let library = LibraryWindowController()
     private let callWatcher = CallWatcher()
+    private let pasteLastShortcut = GlobalShortcut()
 
     /// Transcriptions in flight. Each waits for the one before it before inserting, so text
     /// lands in the order it was dictated even when a later, shorter clip finishes first.
@@ -122,6 +123,14 @@ final class DictationController {
             self?.startMeeting()
             self?.showLiveMeeting()
         }
+        callWatcher.secondsSinceSpeech = { [weak self] in
+            self?.meeting.map { Date().timeIntervalSince($0.lastSpeech) }
+        }
+        callWatcher.onStopMeeting = { [weak self] in self?.stopMeeting() }
+        callWatcher.onNeverOfferStop = { [weak self] in
+            self?.editSettings("meeting", "offerToStopWhenCallEnds", json: "false") { !$0.meeting.offerToStopWhenCallEnds }
+            self?.flash("Won't ask again. Turn it back on in Settings → Meetings.")
+        }
         callWatcher.onNeverAsk = { [weak self] in
             self?.editSettings("meeting", "offerWhenCallStarts", json: "false") { !$0.meeting.offerWhenCallStarts }
             self?.flash("Won't ask again. Turn it back on in Settings → Meetings.")
@@ -168,6 +177,10 @@ final class DictationController {
         scheduleIdleUnload()
         updater.configure(config.updates)
         callWatcher.setEnabled(config.meeting.offerWhenCallStarts)
+        let shortcut = config.insertion.pasteLastShortcut
+        if !pasteLastShortcut.register(shortcut, action: { [weak self] in self?.pasteLastAgain() }), !shortcut.isEmpty {
+            setupProblems.append("insertion.pasteLastShortcut \"\(shortcut)\" is not a shortcut Murmur can use (it needs ⌃, ⌥ or ⌘ and a key, and no other app may own it).")
+        }
         onChange?()
     }
 
@@ -253,6 +266,7 @@ final class DictationController {
                 recorder.onChange = { [weak self] in self?.onChange?() }
                 recorder.onTimeLimit = { [weak self] in self?.stopMeeting() }
                 self.meeting = recorder
+                self.callWatcher.watchMeeting(self.config.meeting.offerToStopWhenCallEnds)
                 self.play("Tink")
                 self.flash("Meeting notes are recording")
             } catch {
@@ -281,6 +295,7 @@ final class DictationController {
             }
             guard let self else { return }
             self.meeting = nil
+            self.callWatcher.watchMeeting(false)
             self.scheduleIdleUnload()
             self.meetingStatus = nil
             self.library.refresh()
@@ -944,6 +959,10 @@ final class DictationController {
             fail("\(error)")
             return
         }
+        if mode == .edit {
+            editSelection(samples, early: early, pipeline: pipeline, context: context, target: target)
+            return
+        }
         if mode == .compose {
             let composer: Composer?
             do {
@@ -1000,7 +1019,7 @@ final class DictationController {
                     return
                 }
                 let outcome = await self.inserter.insert(result.text, config: insertion)
-                self.remember(result.text, mode: mode)
+                self.remember(result.text, mode: mode, spoken: Audio.duration(of: samples))
                 if outcome == .inserted { self.noteInsertion(into: targetPID) }
                 if outcome == .copiedOnly {
                     self.finishJob(id, message: "Copied: no text field to paste into. Press ⌘V where you want it.")
@@ -1016,6 +1035,58 @@ final class DictationController {
         }
         jobs[id] = job
         lastJob = job
+        refreshPill()
+        onChange?()
+    }
+
+    /// Hotkey + ⇧: what was said is an instruction for the selected text, which is replaced.
+    private func editSelection(_ samples: [Float], early: Task<IncrementalTranscription?, Never>?, pipeline: DictationPipeline,
+                               context: CleanupContext, target: NSRunningApplication?) {
+        guard let chat = (try? config.makeComposer(env: env, local: localLLM))?.chat else {
+            if let early { Task { await early.value?.cancel() } }
+            fail(EditError.noModel.description)
+            return
+        }
+        let editor = Editor(chat: chat, timeout: config.compose.timeoutSeconds)
+        let insertion = config.insertion
+        let targetPID = target?.processIdentifier
+        let spoken = Audio.duration(of: samples)
+        let id = UUID()
+        processingStep = "Transcribing"
+        let job = Task { [weak self] in
+            guard let self else { return }
+            do {
+                // Read the selection before anything else can change it.
+                guard let selection = await self.inserter.selectedText() else {
+                    if let early { await early.value?.cancel() }
+                    self.finishJob(id, message: nil)
+                    self.fail(EditError.noSelection.description)
+                    return
+                }
+                let result = try await pipeline.run(samples: samples, incremental: await early?.value, context: context)
+                try Task.checkCancellation()
+                guard !result.transcript.isEmpty else {
+                    self.finishJob(id, message: "No speech heard")
+                    return
+                }
+                self.processingStep = "Editing"
+                self.refreshPill()
+                let started = Date()
+                let edited = try await editor.edit(selection, instruction: result.transcript)
+                try Task.checkCancellation()
+                self.lastTiming = String(format: "%.1f s transcribe + %.1f s edit (%@)",
+                                         result.transcribeSeconds, Date().timeIntervalSince(started), chat.name)
+                let outcome = await self.inserter.insert(edited, config: insertion)
+                self.remember(edited, mode: .edit, spoken: spoken)
+                if outcome == .inserted { self.noteInsertion(into: targetPID) }
+                self.finishJob(id, message: outcome == .copiedOnly ? "Copied: the selection was gone. Press ⌘V where you want it." : nil)
+            } catch {
+                self.finishJob(id, message: nil)
+                let cancelled = Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled
+                if !cancelled { self.fail("\(error)") }
+            }
+        }
+        jobs[id] = job
         refreshPill()
         onChange?()
     }
@@ -1104,7 +1175,47 @@ final class DictationController {
 
     // MARK: Recent
 
-    private func remember(_ text: String, mode: DictationMode) {
+    /// Paste Last Again (⌃⌥V by default): the newest Recent item, where the cursor is.
+    func pasteLastAgain() {
+        guard let last = recent.items.first else {
+            flash("Nothing dictated yet")
+            return
+        }
+        let insertion = config.insertion
+        Task { [weak self] in
+            guard let self else { return }
+            if await self.inserter.insert(last.text, config: insertion) == .copiedOnly {
+                self.flash("Copied: no text field to paste into. Press ⌘V where you want it.")
+            }
+        }
+    }
+
+    var pasteLastShortcutName: String? {
+        (try? HotkeySpec.parse(config.insertion.pasteLastShortcut))?.displayName
+    }
+
+    // MARK: Stats
+
+    /// Words dictated per day, on this Mac only.
+    private(set) lazy var stats: UsageStats = {
+        guard let data = UserDefaults.standard.data(forKey: "usageStats"),
+              let stats = try? JSONDecoder().decode(UsageStats.self, from: data) else { return UsageStats() }
+        return stats
+    }()
+
+    private func recordStats(_ text: String, spoken: TimeInterval) {
+        stats.record(words: UsageStats.wordCount(text), spoken: spoken)
+        if let data = try? JSONEncoder().encode(stats) { UserDefaults.standard.set(data, forKey: "usageStats") }
+    }
+
+    func resetStats() {
+        stats = UsageStats()
+        UserDefaults.standard.removeObject(forKey: "usageStats")
+        onChange?()
+    }
+
+    private func remember(_ text: String, mode: DictationMode, spoken: TimeInterval = 0) {
+        recordStats(text, spoken: spoken)
         recent.add(text, mode: mode)
         onChange?()
     }

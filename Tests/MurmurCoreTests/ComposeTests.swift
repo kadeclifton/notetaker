@@ -7,7 +7,7 @@ final class ModeTests: XCTestCase {
         XCTAssertEqual(ModeKeys(extraModifiers: .control), .control)
         XCTAssertEqual(ModeKeys(extraModifiers: [.control, .option]), .controlOption)
         XCTAssertEqual(ModeKeys(extraModifiers: .option), .plain, "⌥ alone is not a mode")
-        XCTAssertEqual(ModeKeys(extraModifiers: [.control, .shift]), .control)
+        XCTAssertEqual(ModeKeys(extraModifiers: [.control, .shift]), .shift, "⇧ means edit the selection")
 
         let modes = ModesConfig()
         XCTAssertEqual(modes.mode(for: .plain), .dictate)

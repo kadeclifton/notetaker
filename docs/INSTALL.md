@@ -46,6 +46,10 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
 - **Double-tap fn** for hands-free; tap fn again to finish. Long dictations are transcribed while
   you talk, so the text is ready moments after you stop.
 - Say **"new line"** or **"new paragraph"** to break lines while dictating.
+- **Select text and hold fn⇧** (fn + shift), then say what to change: "make this shorter", "more
+  friendly", "fix the grammar", "translate to Spanish". The selection is replaced. Uses the Compose
+  model, so it needs the optional model below.
+- **⌃⌥V** pastes your last dictation again, anywhere.
 - **Esc** cancels.
 - Say **"scratch that"** on its own to undo the last dictation (Murmur presses ⌘Z in that app). End
   a sentence with "scratch that" and nothing from it is typed.
@@ -66,12 +70,14 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
 - **Meeting Notes** (menu bar icon → Start Meeting Notes) records a call and writes notes. It asks for Screen &
   System Audio Recording the first time, to hear the other people. When a call starts in Zoom, Teams,
   FaceTime, Slack or a browser, Murmur offers to take notes (it never starts on its own; turn the
-  offer off in Settings… → Meetings). **Live Transcript…** shows it as it's written, and every
+  offer off in Settings… → Meetings). When the call ends, it offers to stop and write the summary. **Live Transcript…** shows it as it's written, and every
   meeting is in the **Library** (⌘L) next to your Compose pieces.
 - **Use the Neural Engine** (Settings… → Speech) runs part of speech recognition on Apple's Neural
   Engine instead of the GPU: less GPU and battery use. It's a one-time download (40 MB to 1.2 GB
   depending on the model), and the first dictation afterwards takes a minute or two while macOS
   prepares it.
+- **Settings… → General** shows how many words you dictated this week and roughly how much typing
+  that saved, counted on your Mac only.
 - **Copy Diagnostics** (Settings… → About, or More) copies your settings and status for a bug
   report. It never includes anything you dictated or your API keys.
 

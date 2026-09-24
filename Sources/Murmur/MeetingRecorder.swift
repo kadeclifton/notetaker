@@ -32,6 +32,8 @@ final class MeetingRecorder {
     var liveTranscript: MeetingTranscript { transcript }
     /// Pieces recorded but not transcribed yet.
     var piecesPending: Int { pendingPieces }
+    /// When someone (you or the call) was last heard, for "the call seems to be over".
+    private(set) lazy var lastSpeech = startedAt
 
     /// Called every couple of seconds with fresh state for the menu bar.
     var onChange: (() -> Void)?
@@ -100,6 +102,7 @@ final class MeetingRecorder {
 
     private func enqueue(_ chunk: AudioChunk, speaker: Speaker) {
         guard !Audio.isSilent(chunk.samples) else { return }
+        lastSpeech = Date()
         let previous = queueTail
         let transcriber = setup.transcriber
         let language = setup.language

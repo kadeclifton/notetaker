@@ -12,6 +12,8 @@ macOS 14+) · [Install guide](docs/INSTALL.md) · [Privacy](PRIVACY.md)
   bullets, a doc, an AI prompt) in a preview you can insert, copy, restyle or edit.
 - **Library.** Everything Compose writes is kept with what you said, and every meeting's notes,
   as Markdown files you can browse and search from the menu bar.
+- **Edit by voice.** Select text anywhere, hold the hotkey with ⇧ and say what to change ("make
+  this shorter", "more polite", "translate to Spanish"). The selection is replaced.
 - **Snippets and "scratch that".** Say "my address" and saved text goes in. Say "scratch that" to
   undo the last dictation.
 - **Hands-free.** Double-tap the hotkey and it keeps recording with nothing held. Tap once more to finish.
@@ -156,6 +158,8 @@ Click the wave in the menu bar:
 | Hold fn, talk, release | Insert exactly what you said (no language model, fastest) |
 | Hold fn⌃, talk, release | Insert it cleaned up: no "um"s, fixed punctuation, your words |
 | Hold fn⌃⌥, talk, release | Compose: a preview panel writes it up; ⏎ inserts, Esc closes |
+| Select text, hold fn⇧, say what to change | Edit: the selection is rewritten and replaced (uses the Compose model) |
+| ⌃⌥V anywhere | Paste your last dictation again (`insertion.pasteLastShortcut`) |
 | Double-tap the hotkey | Hands-free recording starts (pill shows 🔒 Hands-free) |
 | Tap the hotkey during hands-free | Stop, transcribe, insert |
 | Esc while recording | Discard the recording |
