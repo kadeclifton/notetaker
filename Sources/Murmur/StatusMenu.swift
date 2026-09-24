@@ -76,7 +76,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controller.detectLocalLLM()
 
         menu.addItem(statusLine())
-        if let update = updateItem() { menu.addItem(update) }
         let dictation = item("Dictation", action: #selector(toggleEnabled), key: "e")
         dictation.state = controller.enabled ? .on : .off
         menu.addItem(dictation)
@@ -91,6 +90,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(submenu("Vocabulary", vocabularyMenu()))
         menu.addItem(submenu("More", settingsMenu()))
         menu.addItem(item("Settings…", action: #selector(showSettingsWindow), key: ","))
+
+        let update = updateItems()
+        if !update.isEmpty {
+            menu.addItem(.separator())
+            update.forEach(menu.addItem)
+        }
 
         menu.addItem(.separator())
         menu.addItem(item("Quit Murmur", action: #selector(quit), key: "q"))
@@ -111,15 +116,21 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         return info("Ready · " + controller.modesDescription)
     }
 
-    /// "Update to v0.1.4…" when a newer release is out; progress while it installs.
-    private func updateItem() -> NSMenuItem? {
+    /// Just above Quit, like other menu bar apps: the update downloads by itself, then one click
+    /// installs it and restarts.
+    private func updateItems() -> [NSMenuItem] {
         switch controller.updater.state {
+        case let .downloading(release):
+            return [info("Downloading Murmur \(release.tag)…")]
+        case let .ready(release, _):
+            let notes = info("An update is available (\(release.tag))")
+            return [notes, item("Restart to Update", action: #selector(restartToUpdate))]
         case let .available(release):
-            return item("⬆︎ Update to \(release.tag)…", action: #selector(installUpdate))
+            return [info("An update is available (\(release.tag))"), item("Download and Restart", action: #selector(restartToUpdate))]
         case let .installing(step):
-            return info("⬆︎ " + step)
+            return [info(step)]
         case .idle, .checking, .upToDate, .failed:
-            return nil
+            return []
         }
     }
 
@@ -336,6 +347,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         case .checking: return version + " · checking for updates…"
         case .upToDate: return version + " · up to date"
         case let .available(release): return version + " · \(release.tag) available"
+        case let .downloading(release): return version + " · downloading \(release.tag)…"
+        case let .ready(release, _): return version + " · \(release.tag) ready: Restart to Update"
         case let .installing(step): return version + " · " + step
         case let .failed(message): return "⚠️ " + message
         case .idle: return version
@@ -346,7 +359,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         Task { @MainActor [self] in
             await controller.updater.check(userInitiated: true)
             switch controller.updater.state {
-            case .available: installUpdate()
+            case let .available(release), let .downloading(release), let .ready(release, _):
+                showAlert("Murmur \(release.tag) is available. It downloads in the background; choose Restart to Update in the menu when it appears.")
             case .upToDate: showAlert("You have the latest version, Murmur \(controller.updater.currentVersion).")
             case let .failed(message): showAlert(message)
             case .idle, .checking, .installing: break
@@ -354,22 +368,19 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
     }
 
-    @objc private func installUpdate() {
+    /// One click, no questions, unless a meeting is recording: it would be saved without its summary.
+    @objc private func restartToUpdate() {
         guard let release = controller.updater.available else { return }
-        let alert = NSAlert()
-        alert.messageText = "Update to Murmur \(release.tag)?"
-        var text = "You have \(controller.updater.currentVersion). Murmur downloads the update, checks it is signed by the same developer, and restarts. Settings, models, the Compose Library and permissions stay as they are."
-        if controller.meeting != nil { text += "\n\nThe meeting being recorded is saved first (without its summary)." }
-        alert.informativeText = text
-        alert.addButton(withTitle: "Update and Restart")
-        alert.addButton(withTitle: "Release Notes")
-        alert.addButton(withTitle: "Later")
-        NSApp.activate(ignoringOtherApps: true)
-        switch alert.runModal() {
-        case .alertFirstButtonReturn: controller.updater.install(release)
-        case .alertSecondButtonReturn: controller.updater.openReleasePage()
-        default: break
+        if controller.meeting != nil {
+            let alert = NSAlert()
+            alert.messageText = "Restart to update now?"
+            alert.informativeText = "The meeting being recorded is saved first, without its summary."
+            alert.addButton(withTitle: "Restart to Update")
+            alert.addButton(withTitle: "Later")
+            NSApp.activate(ignoringOtherApps: true)
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
+        controller.updater.install(release)
     }
 
     @objc private func setPillPosition(_ sender: NSMenuItem) {

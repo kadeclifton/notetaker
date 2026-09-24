@@ -3,16 +3,21 @@ import AppKit
 import Security
 import MurmurCore
 
-/// Finds newer releases on GitHub and installs them in place: download the zip, check that the new
-/// app is signed by the same developer and notarized, swap it in, relaunch. Settings, models and
-/// permissions carry over because the signature's identity does not change.
+/// Finds newer releases on GitHub and installs them in place: download the zip in the background,
+/// check that the new app is signed by the same developer and notarized, then, when you choose
+/// Restart to Update, swap it in and relaunch. Settings, models and permissions carry over because
+/// the signature's identity does not change.
 @MainActor
 final class Updater {
     enum State: Equatable {
         case idle
         case checking
         case upToDate
+        /// Newer release found but not downloaded (the background download failed).
         case available(ReleaseInfo)
+        case downloading(ReleaseInfo)
+        /// Downloaded and verified; Restart to Update installs it at once.
+        case ready(ReleaseInfo, app: URL)
         case installing(String)
         case failed(String)
     }
@@ -29,9 +34,17 @@ final class Updater {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     }
 
+    /// The newer release, whether or not it has been downloaded yet.
     var available: ReleaseInfo? {
-        if case let .available(release) = state { return release }
-        return nil
+        switch state {
+        case let .available(release), let .downloading(release), let .ready(release, _): return release
+        case .idle, .checking, .upToDate, .installing, .failed: return nil
+        }
+    }
+
+    var isReady: Bool {
+        if case .ready = state { return true }
+        return false
     }
 
     /// Checks shortly after launch and then every six hours, if the settings allow it.
@@ -52,14 +65,23 @@ final class Updater {
     /// From the menu, or on the timer. A background check never replaces a visible error or an install.
     func check(userInitiated: Bool) async {
         guard !checking else { return }
-        if case .installing = state { return }
+        switch state {
+        case .installing, .downloading: return
+        default: break
+        }
         checking = true
         defer { checking = false }
+        let previous = state
         if userInitiated { set(.checking) }
         do {
             let latest = try await UpdateChecker(repository: repository).latest()
             if UpdateChecker.isNewer(latest, than: currentVersion) {
-                set(.available(latest))
+                // Already downloaded: keep it ready.
+                if case let .ready(release, _) = previous, release.tag == latest.tag {
+                    set(previous)
+                    return
+                }
+                prepare(latest, userInitiated: userInitiated)
             } else if userInitiated || available != nil {
                 set(.upToDate)
             }
@@ -68,21 +90,45 @@ final class Updater {
         }
     }
 
-    func install(_ release: ReleaseInfo) {
-        if case .installing = state { return }
-        set(.installing("Downloading \(release.tag)…"))
+    /// Downloads and verifies in the background; the menu then offers Restart to Update.
+    func prepare(_ release: ReleaseInfo, userInitiated: Bool = false, thenRestart: Bool = false) {
+        switch state {
+        case .installing, .downloading: return
+        default: break
+        }
+        set(.downloading(release))
         Task { [weak self] in
             guard let self else { return }
             do {
                 let newApp = try await self.downloadAndVerify(release)
-                self.set(.installing("Installing \(release.tag)…"))
-                try self.replaceRunningApp(with: newApp)
-                self.set(.installing("Restarting…"))
-                // Quitting saves a running meeting first (AppDelegate.applicationShouldTerminate).
-                self.relaunch()
+                self.set(.ready(release, app: newApp))
+                if thenRestart { self.restartToUpdate() }
             } catch {
-                self.set(.failed("Update failed: \(Self.describe(error)) You can download it from the release page instead."))
+                if userInitiated || thenRestart {
+                    self.set(.failed("Update failed: \(Self.describe(error)) You can download it from the release page instead."))
+                } else {
+                    // Try again at the next check; meanwhile the menu can still offer it.
+                    self.set(.available(release))
+                }
             }
+        }
+    }
+
+    /// Installs the downloaded update and relaunches. Downloads it first if needed.
+    func install(_ release: ReleaseInfo) {
+        if isReady { restartToUpdate() } else { prepare(release, userInitiated: true, thenRestart: true) }
+    }
+
+    func restartToUpdate() {
+        guard case let .ready(release, newApp) = state else { return }
+        set(.installing("Installing \(release.tag)…"))
+        do {
+            try replaceRunningApp(with: newApp)
+            set(.installing("Restarting…"))
+            // Quitting saves a running meeting first (AppDelegate.applicationShouldTerminate).
+            relaunch()
+        } catch {
+            set(.failed("Update failed: \(Self.describe(error)) You can download it from the release page instead."))
         }
     }
 

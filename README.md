@@ -143,7 +143,8 @@ Click the wave in the menu bar:
   Automatic picks the best one that fits your Mac); snippets; meeting options; version and diagnostics.
   Picking a specific microphone helps in clamshell mode with a webcam or display mic; a silent
   recording names the mic it listened to, and quiet mics are boosted (up to +26 dB).
-- **⬆︎ Update to v…** appears at the top when a newer release is published.
+- **An update is available · Restart to Update** appears just above Quit once a newer release has
+  downloaded in the background.
 
 ## Using it
 
@@ -433,9 +434,9 @@ For people to download it, the repository has to be public, or they need to be a
 
 **Updates.** Murmur asks GitHub for the latest release shortly after launch and every six hours
 (`updates.checkAutomatically`; only the public release list is fetched). When there is a newer
-one, the menu offers **Update to v…**: it downloads the zip, installs only if the new app is signed
-with the same Developer ID Team as the running one, intact (`codesign --verify`) and notarized
-(`spctl`), swaps it in place and relaunches. Copies not signed with a Developer ID (local ad-hoc or
+one, it downloads the zip in the background and checks that the new app is signed with the same
+Developer ID Team as the running one, intact (`codesign --verify`) and notarized (`spctl`). The menu
+then shows **Restart to Update** above Quit: one click swaps it in place and relaunches. Copies not signed with a Developer ID (local ad-hoc or
 "Murmur Dev" builds) get a link to the release page instead.
 
 **Which speech model on which Mac.** **Settings… → Speech → Speech model** switches between the three the setup

@@ -485,7 +485,9 @@ private struct AboutTab: View {
                 LabeledContent("Version", value: c.updater.currentVersion)
                 HStack {
                     Button("Check for Updates") { Task { await c.updater.check(userInitiated: true); model.refresh() } }
-                    if let release = c.updater.available { Button("Update to \(release.tag)") { c.updater.install(release) } }
+                    if let release = c.updater.available {
+                        Button(c.updater.isReady ? "Restart to Update (\(release.tag))" : "Update to \(release.tag)") { c.updater.install(release) }
+                    }
                 }
                 if case .upToDate = c.updater.state { Text("You have the latest version.").font(.caption).foregroundStyle(.secondary) }
                 if case let .failed(message) = c.updater.state { Text(message).font(.caption).foregroundStyle(.red) }

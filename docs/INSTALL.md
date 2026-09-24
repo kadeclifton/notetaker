@@ -79,8 +79,9 @@ smaller Compose model if writing feels slow.
 
 ## Updating
 
-When a new version is out, the menu bar menu shows **⬆︎ Update to v…**. Click it, then **Update and
-Restart**: Murmur downloads it, checks it comes from the same developer, and restarts. Settings,
+When a new version is out, Murmur downloads it in the background and checks it comes from the same
+developer. Then the menu bar menu shows **An update is available** with **Restart to Update** just
+above Quit: click it and Murmur installs the update and restarts. Settings,
 models, the Compose Library and permissions carry over. **Settings… → About → Check for Updates** looks
 right away. (You can also download the new zip yourself and replace Murmur in Applications.)
 
