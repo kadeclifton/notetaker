@@ -122,10 +122,13 @@ final class TextInserter {
         if case let .element(element) = Self.focus() {
             var value: CFTypeRef?
             if AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value) == .success,
-               let text = value as? String, !text.isEmpty {
-                return text
+               let text = value as? String {
+                // The app reports its selection: trust it, even when it is empty.
+                return text.isEmpty ? nil : text
             }
         }
+        // ⌘C with ⇧ still down would be ⌘⇧C, which means something else in many apps.
+        await waitForModifiersReleased()
         let pasteboard = NSPasteboard.general
         let saved = snapshot(pasteboard)
         let before = pasteboard.changeCount
@@ -134,9 +137,21 @@ final class TextInserter {
         for _ in 0..<15 where pasteboard.changeCount == before {
             await Self.pause(milliseconds: 20)
         }
-        let copied = pasteboard.changeCount != before ? pasteboard.string(forType: .string) : nil
+        guard pasteboard.changeCount != before else { return nil }
+        let copied = pasteboard.string(forType: .string) ?? ""
         restore(saved, to: pasteboard)
-        return copied?.isEmpty == false ? copied : nil
+        let app = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        return SelectionCopy.accept(copied, bundleID: app) ? copied : nil
+    }
+
+    /// Waits (up to a second) until no modifier key is physically held, so a synthetic ⌘C or ⌘V
+    /// is not read as ⌘⇧C or ⌃⌥⌘V by apps that check the live keyboard state.
+    func waitForModifiersReleased() async {
+        let modifiers: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand, .maskSecondaryFn]
+        for _ in 0..<50 {
+            if CGEventSource.flagsState(.hidSystemState).intersection(modifiers).isEmpty { return }
+            await Self.pause(milliseconds: 20)
+        }
     }
 
     private func postCommand(_ character: String) {

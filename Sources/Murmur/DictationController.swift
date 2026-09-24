@@ -1076,6 +1076,14 @@ final class DictationController {
                 try Task.checkCancellation()
                 self.lastTiming = String(format: "%.1f s transcribe + %.1f s edit (%@)",
                                          result.transcribeSeconds, Date().timeIntervalSince(started), chat.name)
+                // Moved to another app while the model worked: don't paste over something else.
+                if let targetPID, NSWorkspace.shared.frontmostApplication?.processIdentifier != targetPID {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(edited, forType: .string)
+                    self.remember(edited, mode: .edit, spoken: spoken)
+                    self.finishJob(id, message: "Edited text copied: press ⌘V where you want it.")
+                    return
+                }
                 let outcome = await self.inserter.insert(edited, config: insertion)
                 self.remember(edited, mode: .edit, spoken: spoken)
                 if outcome == .inserted { self.noteInsertion(into: targetPID) }
@@ -1184,6 +1192,8 @@ final class DictationController {
         let insertion = config.insertion
         Task { [weak self] in
             guard let self else { return }
+            // The shortcut's ⌃⌥ are still down when it fires; paste once they are let go.
+            await self.inserter.waitForModifiersReleased()
             if await self.inserter.insert(last.text, config: insertion) == .copiedOnly {
                 self.flash("Copied: no text field to paste into. Press ⌘V where you want it.")
             }
