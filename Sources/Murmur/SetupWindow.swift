@@ -100,8 +100,38 @@ struct SetupActions {
         NSPasteboard.general.setString(homebrewInstalled ? Homebrew.whisperCommand : Homebrew.everythingCommand, forType: .string)
     }
 
-    func openTerminal() {
-        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
+    /// Opens a normal Terminal window that runs the install by itself: a .command file is what
+    /// Terminal opens and runs on a double-click, so no copy and paste and no extra permission.
+    func installInTerminal(homebrewInstalled: Bool) {
+        let command = homebrewInstalled ? Homebrew.whisperCommand : Homebrew.everythingCommand
+        let what = homebrewInstalled ? "whisper.cpp" : "Homebrew, then whisper.cpp"
+        let script = """
+        #!/bin/zsh
+        clear
+        echo "Murmur is installing \(what)."
+        echo "If it asks for your Mac password, type it (nothing shows as you type) and press Return."
+        echo
+        \(command)
+        result=$?
+        echo
+        if [ $result -eq 0 ]; then
+          echo "Done. Switch back to Murmur: its setup window ticks this step by itself."
+        else
+          echo "That didn't finish (see above). Close this window and click Install in Murmur to try again."
+        fi
+        echo
+        read -k 1 -s "?Press any key to close this window."
+        """
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("Install for Murmur.command")
+        do {
+            try Data(script.utf8).write(to: file, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+            NSWorkspace.shared.open(file)
+        } catch {
+            // Fall back to the manual way.
+            copyInstallCommand(homebrewInstalled: homebrewInstalled)
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
+        }
     }
 
     func openHomebrewSite() {
@@ -126,6 +156,9 @@ struct SetupActions {
     }
 
     func allowInputMonitoring() {
+        // Switching this on makes macOS offer "Quit & Reopen", and the reopen doesn't always happen
+        // for a menu bar app. Make sure Murmur comes back (and shows this window) either way.
+        Permissions.reopenIfQuit()
         Permissions.requestInputMonitoring()
         Permissions.open(.inputMonitoring)
     }
@@ -160,20 +193,19 @@ struct SetupView: View {
                 if !model.whisperInstalled && !model.homebrewInstalled {
                     step(done: false, title: "Install Homebrew and whisper.cpp",
                          detail: "whisper.cpp, the speech recognizer, comes from Homebrew, which this Mac doesn't have yet. "
-                            + "Copy the command, open Terminal, paste it and press Return. It asks for your Mac password "
-                            + "(nothing shows as you type) and may install Apple's developer tools first; allow 10 to 15 minutes.") {
+                            + "Click Install: a Terminal window opens and runs it. Type your Mac password when asked "
+                            + "(nothing shows as you type) and press Return. It may install Apple's developer tools "
+                            + "first; allow 10 to 15 minutes. This step ticks itself when it's done.") {
+                        Button("Install in Terminal") { actions.installInTerminal(homebrewInstalled: false) }
                         Button("Copy Command") { actions.copyInstallCommand(homebrewInstalled: false) }
-                        Button("Open Terminal") { actions.openTerminal() }
                         Button("About Homebrew") { actions.openHomebrewSite() }
-                        Button("Check Again") { actions.recheck() }
                     }
                 } else {
                     step(done: model.whisperInstalled, title: "Install whisper.cpp",
-                         detail: "The speech recognizer. Copy the command, open Terminal, paste it and press Return:  "
-                            + Homebrew.whisperCommand) {
+                         detail: "The speech recognizer. Click Install: a Terminal window opens and runs  "
+                            + Homebrew.whisperCommand + "  (a minute or two). This step ticks itself when it's done.") {
+                        Button("Install in Terminal") { actions.installInTerminal(homebrewInstalled: true) }
                         Button("Copy Command") { actions.copyInstallCommand(homebrewInstalled: true) }
-                        Button("Open Terminal") { actions.openTerminal() }
-                        Button("Check Again") { actions.recheck() }
                     }
                 }
                 modelStep

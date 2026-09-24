@@ -1,4 +1,5 @@
 #if os(macOS)
+import AudioToolbox
 import AVFoundation
 import MurmurCore
 
@@ -16,7 +17,7 @@ enum RecorderError: Error, CustomStringConvertible {
     }
 }
 
-/// Captures the default input device as 16 kHz mono Float samples.
+/// Captures the microphone picked in the menu (or the system default) as 16 kHz mono Float samples.
 /// A fresh AVAudioEngine per recording picks up whatever mic is current (AirPods, USB, built-in).
 ///
 /// Starting an engine can take hundreds of milliseconds on Bluetooth or USB mics, so start and
@@ -28,6 +29,11 @@ final class AudioRecorder: @unchecked Sendable {
 
     /// Recent loudness, roughly 0...1, for the pill's level meter.
     var level: Float { buffer.level }
+
+    private let nameLock = NSLock()
+    private var _deviceName: String?
+    /// The microphone the last recording used, for messages like "No sound from …".
+    var deviceName: String? { nameLock.withLock { _deviceName } }
 
     /// Everything recorded since the last call, without stopping. Meeting notes read the mic this way.
     func takeRecorded() -> [Float] { buffer.drain() }
@@ -67,6 +73,15 @@ final class AudioRecorder: @unchecked Sendable {
         }
         let engine = AVAudioEngine()
         let input = engine.inputNode
+        // Point the engine at the chosen mic before reading its format. With nothing picked it
+        // follows the system default, as it always did.
+        let device = AudioDevices.current()
+        if AudioDevices.preferredUID != nil, let device, let unit = input.audioUnit {
+            var id = device.id
+            AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                 &id, UInt32(MemoryLayout<AudioDeviceID>.size))
+        }
+        nameLock.withLock { _deviceName = device?.name }
         let inputFormat = input.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
             throw RecorderError.noInputDevice

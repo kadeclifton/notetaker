@@ -43,8 +43,8 @@ If it prints a version such as `Homebrew 4.x`, skip to **c**. If it says `comman
 brew install whisper-cpp
 ```
 
-That's all Terminal is needed for. (Murmur's setup window also shows these commands, with a button
-to copy them.)
+That's all Terminal is needed for. (Or skip this step: Murmur's setup window has an **Install in
+Terminal** button that opens Terminal and runs all of it for you.)
 
 ## 2. Install Murmur
 
@@ -89,6 +89,9 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
   finish talking with no text box selected, Murmur leaves the words on the clipboard instead of
   losing them; press ⌘V where you want them.
 - **Vocabulary** (menu bar icon → Add Word…) teaches it names and jargon it misspells.
+- **Microphone** (menu bar icon) picks which mic to use. If it keeps saying "No sound from …", pick
+  your mic there (a webcam or display mic, say) and check its level in System Settings → Sound →
+  Input.
 - **Settings → How to Use Murmur** shows all of this on one page.
 - **Meeting Notes** (menu bar icon → Start Meeting Notes) records a call and writes notes. It asks for Screen &
   System Audio Recording the first time, to hear the other people.

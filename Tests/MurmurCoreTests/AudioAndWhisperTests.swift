@@ -23,6 +23,30 @@ final class AudioTests: XCTestCase {
         XCTAssertEqual(Audio.duration(of: samples), 1)
     }
 
+    func testQuietMicIsNotSilence() {
+        // A webcam mic across a desk: speech around -52 dBFS.
+        let quiet = (0..<16_000).map { sin(Float($0) / 5) * 0.0035 }
+        XCTAssertFalse(Audio.isSilent(quiet))
+        XCTAssertTrue(Audio.isSilent([Float](repeating: 0.0008, count: 16_000)), "hiss stays silent")
+    }
+
+    func testBoostRaisesQuietSpeechOnly() {
+        let quiet = (0..<16_000).map { sin(Float($0) / 5) * 0.004 }
+        let boosted = Audio.boosted(quiet)
+        let gain = Audio.rms(boosted) / Audio.rms(quiet)
+        XCTAssertEqual(gain, 20, accuracy: 0.01, "capped at 20×")
+        XCTAssertLessThanOrEqual(boosted.map(abs).max()!, 1)
+
+        let normal = (0..<16_000).map { sin(Float($0) / 5) * 0.2 }
+        XCTAssertEqual(Audio.boosted(normal), normal, "loud enough already")
+
+        // A quiet recording with one loud click is not pushed into clipping.
+        var clicky = quiet
+        clicky[100] = 0.9
+        XCTAssertLessThanOrEqual(Audio.boosted(clicky).map(abs).max()!, 0.99)
+        XCTAssertEqual(Audio.boosted([]), [])
+    }
+
     func testTranscriptFilter() {
         XCTAssertEqual(TranscriptFilter.clean(" [BLANK_AUDIO] "), "")
         XCTAssertEqual(TranscriptFilter.clean("Hello [Music] world\n again"), "Hello world again")

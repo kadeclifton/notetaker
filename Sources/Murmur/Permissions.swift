@@ -44,6 +44,40 @@ enum Permissions {
 }
 
 /// Launch at login through SMAppService (macOS 13+). Needs the app to be a real .app bundle.
+extension Permissions {
+    @MainActor private static var reopenWatch: Process?
+
+    /// Some permissions (Input Monitoring, Screen Recording) make macOS quit Murmur, and its
+    /// "Reopen" does not always bring a menu bar app back. A small shell loop waits for this process
+    /// to end and opens Murmur again if nothing else did. It gives up after 15 minutes, and a Quit
+    /// from Murmur's own menu cancels it.
+    @MainActor
+    static func reopenIfQuit() {
+        guard reopenWatch?.isRunning != true else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        let pid = ProcessInfo.processInfo.processIdentifier
+        process.arguments = ["-c", """
+            end=$((SECONDS + 900))
+            while kill -0 \(pid) 2>/dev/null; do
+              [ $SECONDS -gt $end ] && exit 0
+              sleep 0.5
+            done
+            sleep 2
+            pgrep -xq Murmur || /usr/bin/open "$0"
+            """, Bundle.main.bundleURL.path]
+        try? process.run()
+        reopenWatch = process
+    }
+
+    /// Quitting on purpose: don't bring Murmur back.
+    @MainActor
+    static func cancelReopen() {
+        reopenWatch?.terminate()
+        reopenWatch = nil
+    }
+}
+
 enum LoginItem {
     static var isEnabled: Bool { SMAppService.mainApp.status == .enabled }
 
