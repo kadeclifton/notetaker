@@ -35,6 +35,29 @@ public enum EditPrompt {
     }
 }
 
+/// Copying with ⌘C to read a selection: some code editors copy the whole current line when
+/// nothing is selected, which must not be mistaken for a selection.
+public enum SelectionCopy {
+    /// VS Code and its forks, JetBrains IDEs, Sublime Text, Zed, Nova.
+    public static func copiesLineWithoutSelection(_ bundleID: String?) -> Bool {
+        guard let id = bundleID?.lowercased() else { return false }
+        let exact: Set<String> = ["com.microsoft.vscode", "com.microsoft.vscodeinsiders", "com.vscodium",
+                                  "com.todesktop.230313mzl4w4u92", "com.exafunction.windsurf",
+                                  "com.sublimetext.4", "com.sublimetext.3", "dev.zed.zed", "com.panic.nova"]
+        return exact.contains(id) || id.hasPrefix("com.jetbrains.") || id.hasPrefix("com.google.android.studio")
+    }
+
+    /// What ⌘C put on the clipboard counts as the selection, unless this app copies a whole line
+    /// when nothing is selected and that is what it looks like: one line ending in a line break.
+    public static func accept(_ copied: String, bundleID: String?) -> Bool {
+        guard !copied.isEmpty else { return false }
+        guard copiesLineWithoutSelection(bundleID) else { return true }
+        let lines = copied.split(separator: "\n", omittingEmptySubsequences: false)
+        let wholeLine = copied.hasSuffix("\n") && lines.count == 2
+        return !wholeLine
+    }
+}
+
 public enum EditError: Error, CustomStringConvertible, Equatable {
     case noSelection
     case noModel

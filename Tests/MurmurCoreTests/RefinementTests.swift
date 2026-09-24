@@ -213,3 +213,15 @@ final class NextReleaseTests: XCTestCase {
         XCTAssertEqual(UsageStats.wordCount("Hi Sam,\nthanks  for it"), 5)
     }
 }
+
+final class SelectionCopyTests: XCTestCase {
+    func testLineCopiesInCodeEditorsAreNotSelections() {
+        let vscode = "com.microsoft.VSCode"
+        XCTAssertFalse(SelectionCopy.accept("let x = 1\n", bundleID: vscode), "VS Code copied the line: nothing was selected")
+        XCTAssertTrue(SelectionCopy.accept("let x = 1", bundleID: vscode), "a real selection within the line")
+        XCTAssertTrue(SelectionCopy.accept("one\ntwo\n", bundleID: vscode), "several selected lines")
+        XCTAssertFalse(SelectionCopy.accept("x\n", bundleID: "com.jetbrains.intellij"))
+        XCTAssertTrue(SelectionCopy.accept("Hello there\n", bundleID: "com.apple.Notes"), "other apps copy only selections")
+        XCTAssertFalse(SelectionCopy.accept("", bundleID: "com.apple.Notes"))
+    }
+}
