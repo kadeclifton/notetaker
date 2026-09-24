@@ -272,7 +272,7 @@ struct SetupView: View {
     private var modelStep: some View {
         step(done: model.modelInstalled && !downloader.isDownloading, title: "Download a speech model",
              detail: model.modelInstalled
-                ? "Using \(model.currentModel?.title ?? "your configured model"). Switch any time from the menu: Speech Model."
+                ? "Using \(model.currentModel?.title ?? "your configured model"). Switch any time in Settings → Speech."
                 : "Stays on this Mac. Nothing you say is uploaded.") {
             EmptyView()
         }

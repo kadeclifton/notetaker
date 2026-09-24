@@ -47,13 +47,13 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
 - **Esc** cancels.
 - Say **"scratch that"** on its own to undo the last dictation (Murmur presses ⌘Z in that app). End
   a sentence with "scratch that" and nothing from it is typed.
-- **Snippets** (Settings… → Snippets): say a phrase like "my email" on its own and saved text is
-  typed instead.
+- **Snippets** (menu bar icon → Snippets, or Settings… → Snippets): say a phrase like "my email" on
+  its own and saved text is typed instead. Or click one in the menu to type it.
 - **Recent** (menu bar icon) holds your last 10 dictations: click one to copy it again. If you
   finish talking while a list or button is selected rather than a text box, Murmur leaves the
   words on the clipboard instead of losing them; press ⌘V where you want them.
 - **Vocabulary** (menu bar icon → Add Word…) teaches it names and jargon it misspells.
-- **Microphone** (menu bar icon) picks which mic to use. If it keeps saying "No sound from …", pick
+- **Settings… → Speech → Microphone** picks which mic to use. If it keeps saying "No sound from …", pick
   your mic there (a webcam or display mic, say) and check its level in System Settings → Sound →
   Input.
 - The **pill** (Listening, Transcribing) sits under the menu bar. Drag it wherever it's out of
@@ -73,9 +73,9 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
 - **Copy Diagnostics** (Settings… → About, or More) copies your settings and status for a bug
   report. It never includes anything you dictated or your API keys.
 
-**Speech Model** in the menu switches between the speed and accuracy options and shows how long
-the last dictation took. **Cleanup & Compose** shows which models are in use and lets you pick a
-smaller Compose Model if writing feels slow.
+**Settings… → Speech** switches between the speed and accuracy options and shows how long the last
+dictation took. **Settings… → Writing** shows which models clean up and compose, and lets you pick a
+smaller Compose model if writing feels slow.
 
 ## Updating
 
