@@ -69,7 +69,8 @@ final class TextInserter {
         case unknown
     }
 
-    /// Only a definite "nothing" or a non-text role skips the paste; anything uncertain pastes as before.
+    /// Only a focused control that clearly can't take text (a list, a button) skips the paste;
+    /// anything uncertain pastes as before.
     private static func focusedTarget() -> TextTarget.Verdict {
         guard AXIsProcessTrusted() else { return .text }
         switch focus() {

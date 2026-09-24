@@ -34,28 +34,31 @@ public struct RecentDictations: Sendable, Equatable {
     public mutating func clear() { items.removeAll() }
 }
 
-/// Whether the focused UI element can take typed text, from its Accessibility role. Pasting with
-/// nothing to receive it loses the words, so Murmur keeps them on the clipboard instead. Unknown
-/// roles count as text: a missed paste is worse than a harmless one.
+/// Whether the focused UI element can take typed text, from its Accessibility role. Pasting into
+/// a list or a button loses the words, so Murmur keeps them on the clipboard instead. Anything
+/// uncertain counts as text: Chrome and Electron apps (Google Chat, Slack, Claude) often report no
+/// focused element, or only their window, until an assistive app wakes their accessibility tree,
+/// and a skipped paste there is far worse than a harmless one elsewhere.
 public enum TextTarget {
     public enum Verdict: Equatable {
         case text
         case notText
     }
 
-    /// Roles that never take typing: the desktop, lists, buttons, images and the like.
+    /// Controls that never take typing: lists, buttons, images and the like. Not windows, groups or
+    /// web areas, which is all a browser may report while a text box has focus.
     static let nonTextRoles: Set<String> = [
-        "AXApplication", "AXWindow", "AXList", "AXOutline", "AXTable", "AXBrowser", "AXButton",
+        "AXList", "AXOutline", "AXTable", "AXBrowser", "AXButton",
         "AXImage", "AXMenuBar", "AXMenu", "AXMenuItem", "AXDockItem", "AXCheckBox", "AXRadioButton",
         "AXPopUpButton", "AXSlider", "AXToolbar", "AXSplitGroup", "AXScrollBar",
     ]
 
     /// - Parameters:
-    ///   - role: the focused element's AXRole, or nil when nothing has keyboard focus.
+    ///   - role: the focused element's AXRole, or nil when Accessibility reports none.
     ///   - editable: whether its value can be set or it has a text selection, if known.
     public static func verdict(role: String?, editable: Bool?) -> Verdict {
         if editable == true { return .text }
-        guard let role else { return .notText }
+        guard let role else { return .text }
         return nonTextRoles.contains(role) ? .notText : .text
     }
 }
