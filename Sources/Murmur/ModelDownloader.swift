@@ -3,7 +3,7 @@ import Foundation
 import MurmurCore
 
 /// Downloads a Whisper model into ~/.config/murmur/models with progress, for the setup window
-/// and the Speech Model menu. One download at a time.
+/// and Settings. One download at a time.
 @MainActor
 final class ModelDownloader: NSObject, ObservableObject {
     enum State: Equatable {

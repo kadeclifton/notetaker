@@ -69,8 +69,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
 
     // Rebuilt every time it opens so it always reflects current state. The top level stays short:
-    // what state Murmur is in, the two things you do (dictate, record a meeting), and one submenu
-    // each for speech, cleanup and settings.
+    // what state Murmur is in, the things you do (dictate, record a meeting, snippets), and Settings.
+    // Speech model, microphone and the writing models live in the Settings window.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         controller.detectLocalLLM()
@@ -87,10 +87,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(submenu("Recent", recentMenu()))
 
         menu.addItem(.separator())
-        if controller.usesLocalWhisper { menu.addItem(submenu("Speech Model", speechModelMenu())) }
-        menu.addItem(submenu("Microphone", microphoneMenu()))
+        menu.addItem(submenu("Snippets", snippetsMenu()))
         menu.addItem(submenu("Vocabulary", vocabularyMenu()))
-        menu.addItem(submenu("Cleanup & Compose", writingMenu()))
         menu.addItem(submenu("More", settingsMenu()))
         menu.addItem(item("Settings…", action: #selector(showSettingsWindow), key: ","))
 
@@ -137,30 +135,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
     }
 
-    private func speechModelMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        let current = controller.currentWhisperModel
-        for option in WhisperModelOption.catalog {
-            var title = "\(option.title.replacingOccurrences(of: " (recommended)", with: "")) · \(option.id)"
-            if case let .downloading(active, progress) = controller.downloader.state, active == option {
-                title += " · downloading \(Int(progress * 100))%"
-            } else if !FileManager.default.fileExists(atPath: option.localURL().path) {
-                title += " · \(option.megabytes) MB download"
-            }
-            let choice = item(title, action: #selector(selectSpeechModel(_:)))
-            choice.representedObject = option.id
-            choice.state = option == current ? .on : .off
-            choice.isEnabled = !controller.downloader.isDownloading
-            menu.addItem(choice)
-        }
-        if let timing = controller.lastTiming {
-            menu.addItem(.separator())
-            menu.addItem(info("Last dictation: " + timing))
-        }
-        return menu
-    }
-
     /// The last few things Murmur inserted; click one to copy it again. Memory only.
     private func recentMenu() -> NSMenu {
         let menu = NSMenu()
@@ -190,30 +164,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         return menu
     }
 
-    /// Which mic to record from. "System default" follows System Settings → Sound → Input.
-    private func microphoneMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        let picked = controller.microphoneUID
-        let devices = controller.microphones
-        let followDefault = item("System Default" + (controller.defaultMicrophoneName.map { " (\($0))" } ?? ""),
-                                 action: #selector(selectMicrophone(_:)))
-        followDefault.representedObject = ""
-        followDefault.state = picked == nil || !devices.contains(where: { $0.uid == picked }) ? .on : .off
-        menu.addItem(followDefault)
-        menu.addItem(.separator())
-        for device in devices {
-            let choice = item(device.name, action: #selector(selectMicrophone(_:)))
-            choice.representedObject = device.uid
-            choice.state = device.uid == picked ? .on : .off
-            menu.addItem(choice)
-        }
-        if let picked, !devices.contains(where: { $0.uid == picked }) {
-            menu.addItem(info("The mic you picked isn't connected; using the default."))
-        }
-        return menu
-    }
-
     /// Where the Listening/Transcribing pill appears. Dragging the pill picks "Where I Dragged It".
     private func pillPositionMenu() -> NSMenu {
         let menu = NSMenu()
@@ -227,6 +177,31 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             if position == .bottomRight { menu.addItem(.separator()) }
         }
         menu.addItem(info("Or drag the pill anywhere while it shows"))
+        return menu
+    }
+
+    /// Saved text: click one to type it where you are; say its phrase to do the same by voice.
+    private func snippetsMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.addItem(item("Add Snippet…", action: #selector(addSnippet)))
+        let snippets = controller.snippets
+        if snippets.isEmpty {
+            menu.addItem(info("Say a phrase, get saved text: \u{201C}my email\u{201D} → your address"))
+        } else {
+            menu.addItem(.separator())
+            for (index, snippet) in snippets.enumerated() {
+                let preview = snippet.insert.split(whereSeparator: \.isNewline).joined(separator: " ")
+                let short = preview.count > 40 ? String(preview.prefix(37)) + "…" : preview
+                let entry = item("\u{201C}\(snippet.say)\u{201D}  →  \(short)", action: #selector(insertSnippet(_:)))
+                entry.representedObject = index
+                entry.toolTip = "Click to type it, or say \u{201C}\(snippet.say)\u{201D} on its own"
+                menu.addItem(entry)
+            }
+            menu.addItem(info("Click one to type it where you are"))
+        }
+        menu.addItem(.separator())
+        menu.addItem(item("Edit Snippets…", action: #selector(editSnippets)))
         return menu
     }
 
@@ -248,65 +223,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             }
             menu.addItem(info("Click a word to remove it"))
         }
-        return menu
-    }
-
-    private func writingMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        let hotkey = controller.hotkeyDescription
-        if controller.hasModes {
-            menu.addItem(info("Hold ⌃ with \(hotkey) to clean up, ⌃⌥ to compose; double-tap for hands-free"))
-            let plain = item("Clean Up Plain \(hotkey) Too", action: #selector(togglePlainCleanup))
-            plain.state = controller.plainMode == .clean ? .on : .off
-            plain.isEnabled = [.dictate, .clean].contains(controller.plainMode)
-            menu.addItem(plain)
-            menu.addItem(.separator())
-        }
-
-        menu.addItem(info("Clean up: \(controller.cleanerName)"))
-        if let model = controller.cleanupOllamaModel {
-            let keep = NSMenu()
-            keep.autoenablesItems = false
-            for option in KeepAlive.allCases {
-                let choice = item(option.title, action: #selector(setKeepAlive(_:)))
-                choice.representedObject = option.rawValue
-                choice.state = option == controller.keepAlive ? .on : .off
-                keep.addItem(choice)
-            }
-            menu.addItem(submenu("Keep \(model) Loaded", keep))
-        }
-
-        menu.addItem(.separator())
-        menu.addItem(info("Compose: \(controller.composerName)"))
-        let choices = controller.composeModelChoices
-        if !choices.isEmpty {
-            let models = NSMenu()
-            models.autoenablesItems = false
-            let pinned = controller.composeModelSetting
-            let automatic = item("Automatic: best that fits this Mac" + (controller.automaticComposeModel.map { " (\($0))" } ?? ""),
-                                 action: #selector(setComposeModel(_:)))
-            automatic.representedObject = ""
-            automatic.state = pinned.isEmpty ? .on : .off
-            models.addItem(automatic)
-            models.addItem(.separator())
-            for name in choices {
-                let choice = item(name + (controller.composeModelSize(name).map { " · \($0)" } ?? ""),
-                                  action: #selector(setComposeModel(_:)))
-                choice.representedObject = name
-                choice.state = name == pinned ? .on : .off
-                models.addItem(choice)
-            }
-            menu.addItem(submenu("Compose Model", models))
-        }
-        if let suggestion = controller.composeSuggestion {
-            let copy = item("Better for this Mac: copy \"ollama pull \(suggestion)\"", action: #selector(copyPullCommand(_:)))
-            copy.representedObject = suggestion
-            menu.addItem(copy)
-        }
-
-        menu.addItem(.separator())
-        menu.addItem(info("Meeting summaries: \(controller.summaryName)"))
         return menu
     }
 
@@ -406,30 +322,13 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controller.reloadConfig()
     }
 
-    @objc private func selectSpeechModel(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String,
-              let option = WhisperModelOption.catalog.first(where: { $0.id == id }) else { return }
-        controller.selectWhisperModel(option)
-    }
 
     @objc private func showSetup() {
         controller.showSetup()
     }
 
-    @objc private func togglePlainCleanup() {
-        controller.setPlainMode(controller.plainMode == .clean ? .dictate : .clean)
-    }
 
-    @objc private func setComposeModel(_ sender: NSMenuItem) {
-        guard let name = sender.representedObject as? String else { return }
-        controller.setComposeModel(name)
-    }
 
-    @objc private func copyPullCommand(_ sender: NSMenuItem) {
-        guard let model = sender.representedObject as? String else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("ollama pull \(model)", forType: .string)
-    }
 
     private func updateStatus() -> String {
         let version = "Murmur \(controller.updater.currentVersion)"
@@ -478,10 +377,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controller.pillPosition = position
     }
 
-    @objc private func selectMicrophone(_ sender: NSMenuItem) {
-        guard let uid = sender.representedObject as? String else { return }
-        controller.setMicrophone(uid.isEmpty ? nil : uid)
-    }
 
     @objc private func copyRecent(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let id = UUID(uuidString: raw) else { return }
@@ -516,6 +411,37 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controller.showHowTo()
     }
 
+    @objc private func addSnippet() {
+        let alert = NSAlert()
+        alert.messageText = "Add a Snippet"
+        alert.informativeText = "Say the phrase on its own and the text is typed instead."
+        let say = NSTextField(frame: NSRect(x: 0, y: 64, width: 300, height: 24))
+        say.placeholderString = "When I say… (e.g. my email)"
+        let text = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 56))
+        text.placeholderString = "Type this (e.g. name@example.com)"
+        text.usesSingleLineMode = false
+        text.cell?.wraps = true
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 88))
+        box.addSubview(say)
+        box.addSubview(text)
+        alert.accessoryView = box
+        alert.addButton(withTitle: "Add")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = say
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        controller.addSnippet(Snippet(say: say.stringValue, insert: text.stringValue))
+    }
+
+    @objc private func insertSnippet(_ sender: NSMenuItem) {
+        guard let index = sender.representedObject as? Int, controller.snippets.indices.contains(index) else { return }
+        controller.insertSnippet(controller.snippets[index])
+    }
+
+    @objc private func editSnippets() {
+        controller.showSettings(tab: .snippets)
+    }
+
     @objc private func showSettingsWindow() {
         controller.showSettings()
     }
@@ -537,10 +463,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controller.showLibrary()
     }
 
-    @objc private func setKeepAlive(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let option = KeepAlive(rawValue: raw) else { return }
-        controller.keepAlive = option
-    }
 
     @objc private func startMeeting() {
         controller.startMeeting()

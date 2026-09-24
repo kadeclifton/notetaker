@@ -133,18 +133,16 @@ Click the wave in the menu bar:
 - **Library…** (⌘L): everything Compose has written, and every meeting's notes.
 - **Recent**: **Undo Last Dictation**, then the last 10 dictations and composes, click to copy again
   (kept in memory only).
+- **Snippets**: click one to type it where you are, **Add Snippet…**, and **Edit Snippets…**.
 - **Vocabulary**: add or remove the names and jargon passed to Whisper (`transcription.vocabulary`).
-- **Microphone**: record from a specific mic instead of the system default (useful in clamshell mode
-  with a webcam or display mic). A silent recording names the mic it listened to. Quiet mics are
-  boosted (up to +26 dB) before transcription.
-- **Speech Model**: Fastest / Balanced / Most accurate, and how long the last dictation took.
-- **Cleanup & Compose**: whether plain fn cleans up too, which models clean up and compose, how long
-  Ollama keeps the cleanup model loaded, and **Compose Model** (Automatic picks the best one that fits
-  your Mac; pick another on slower hardware).
 - **More**: setup window, how-to, pill position, launch at login, the meeting notes and library
   folders, the settings and API key files, **Check for Updates…** and **Copy Diagnostics**.
-- **Settings…** (⌘,): hotkey picker, microphone, speech model and Neural Engine, vocabulary,
-  snippets, meeting options, version and diagnostics.
+- **Settings…** (⌘,): hotkey picker; **Speech** (microphone, speech model and how long the last
+  dictation took, Neural Engine, vocabulary); **Writing** (whether plain fn cleans up too, which
+  models clean up and compose, how long Ollama keeps the cleanup model loaded, and the Compose model:
+  Automatic picks the best one that fits your Mac); snippets; meeting options; version and diagnostics.
+  Picking a specific microphone helps in clamshell mode with a webcam or display mic; a silent
+  recording names the mic it listened to, and quiet mics are boosted (up to +26 dB).
 - **⬆︎ Update to v…** appears at the top when a newer release is published.
 
 ## Using it
@@ -193,8 +191,8 @@ piece there and it is saved. The pieces are plain Markdown files in `~/Documents
 **Which model.** Compose only runs when you ask, so it uses the most capable local model that fits
 in your Mac's memory (up to 60% of it), not the small cleanup model. With 32 GB or more that is
 `qwen3:30b` (a fast mixture-of-experts model, about 19 GB); 24 GB → `qwen3:14b`; 16 GB →
-`qwen3:8b`; 8 GB → `qwen3:4b`. The menu suggests the one to pull and **Cleanup & Compose → Compose
-Model** overrides the choice (it sets `compose.model`). Murmur starts loading the model the moment
+`qwen3:8b`; 8 GB → `qwen3:4b`. Settings… → Writing suggests the one to pull and its **Compose
+model** picker overrides the choice (it sets `compose.model`). Murmur starts loading the model the moment
 you press ⌃⌥, while you are still talking. With a Groq, OpenAI or Anthropic key, `"provider": "auto"`
 uses that instead; set `"provider": "local"` under `compose` to keep it on your Mac.
 
@@ -258,7 +256,7 @@ Cleanup runs on every dictation, so it only picks a **small general model** (abo
 less, not a code model), smallest first: Qwen 3, Qwen 2.5, Llama 3.2, Llama 3.1, Gemma, Mistral, Phi.
 If you only have big or code models (say `qwen3-coder:30b`), cleanup stays off and dictation stays
 fast. Meeting summaries run once per meeting, so they use the most capable model you have, big ones
-included. **Speech Model → Last dictation** shows how long transcription and cleanup took.
+included. **Settings… → Speech → Last dictation** shows how long transcription and cleanup took.
 
 Not sure what you have installed? In Terminal:
 
@@ -275,8 +273,8 @@ specific one, e.g. `"qwen3:8b"`.
 For LM Studio, start its server: Developer tab → **Start Server**, with a model loaded.
 
 **Keeping the model loaded.** Ollama unloads a model after 5 idle minutes, and the next dictation then
-waits a few seconds while it loads again. When cleanup runs on Ollama, **Cleanup & Compose → Keep <model>
-Loaded** offers with 5 minutes, 30 minutes (Murmur's default), 1 hour, 4 hours, or always. Murmur also loads
+waits a few seconds while it loads again. When cleanup runs on Ollama, **Settings… → Writing → Keep <model>
+loaded** offers with 5 minutes, 30 minutes (Murmur's default), 1 hour, 4 hours, or always. Murmur also loads
 the model at launch, so the first dictation doesn't wait. A 4B model takes about 3 GB of memory while
 it stays loaded. Meeting summary models are left to Ollama's normal 5 minutes.
 
@@ -440,7 +438,7 @@ with the same Developer ID Team as the running one, intact (`codesign --verify`)
 (`spctl`), swaps it in place and relaunches. Copies not signed with a Developer ID (local ad-hoc or
 "Murmur Dev" builds) get a link to the release page instead.
 
-**Which speech model on which Mac.** The menu's **Speech Model** switches between the three the setup
+**Which speech model on which Mac.** **Settings… → Speech → Speech model** switches between the three the setup
 window offers, and **Last dictation** shows the time each one takes on your Mac:
 
 | Model | Size | Best for |

@@ -132,7 +132,7 @@ final class ComposeController: NSObject, NSWindowDelegate {
         } catch {
             guard self.session === session, !Self.isCancellation(error) else { return }
             let reason = (error as? URLError)?.code == .timedOut
-                ? "The model took longer than compose.timeoutSeconds. A smaller Compose Model (menu bar) is quicker."
+                ? "The model took longer than compose.timeoutSeconds. A smaller Compose model (Settings → Writing) is quicker."
                 : "\(error)"
             session.phase = .failed(reason)
         }

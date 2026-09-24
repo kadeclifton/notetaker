@@ -88,7 +88,7 @@ final class DictationController {
     /// Called whenever something the menu shows has changed.
     var onChange: (() -> Void)?
 
-    /// Downloads Whisper models for the setup window and the Speech Model menu.
+    /// Downloads Whisper models for the setup window and Settings.
     let downloader = ModelDownloader()
     /// Offers and installs newer releases from GitHub.
     let updater = Updater()
@@ -431,7 +431,7 @@ final class DictationController {
     /// The compose model pinned in the settings, or "" for automatic.
     var composeModelSetting: String { config.compose.model }
 
-    /// Local models that can write, for the Compose Model menu. Empty without Ollama or LM Studio,
+    /// Local models that can write, for the Compose model picker. Empty without Ollama or LM Studio,
     /// or when compose uses a hosted API.
     var composeModelChoices: [String] {
         guard let local = localLLM, [.auto, .local].contains(config.compose.provider),
@@ -528,6 +528,28 @@ final class DictationController {
             }
         } catch {
             fail("Could not update the settings file: \(error)")
+        }
+    }
+
+    func addSnippet(_ snippet: Snippet) {
+        guard !snippet.say.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        // Saying the same phrase again replaces its text.
+        let key = VoiceCommands.normalize(snippet.say)
+        setSnippets(snippets.filter { VoiceCommands.normalize($0.say) != key } + [snippet])
+    }
+
+    /// From the menu: types the snippet into the app that was in front.
+    func insertSnippet(_ snippet: Snippet) {
+        let insertion = config.insertion
+        let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        Task { [weak self] in
+            guard let self else { return }
+            let outcome = await self.inserter.insert(snippet.insert, config: insertion)
+            if outcome == .inserted {
+                self.noteInsertion(into: pid)
+            } else {
+                self.flash("Copied: no text field to paste into. Press ⌘V where you want it.")
+            }
         }
     }
 
@@ -880,7 +902,7 @@ final class DictationController {
         if Audio.isSilent(samples) {
             let mic = recorder.deviceName.map { "“\($0)”" } ?? "the microphone"
             lastFailure = "No sound came from \(mic). Check its input level in System Settings → Sound → Input, "
-                + "or pick another in the menu bar: Microphone."
+                + "or pick another in Settings → Speech → Microphone."
             flash("No sound from \(recorder.deviceName ?? "the microphone")", isError: true)
             onChange?()
             return

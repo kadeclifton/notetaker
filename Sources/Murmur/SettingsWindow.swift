@@ -56,6 +56,7 @@ struct SnippetDraft: Identifiable, Equatable {
 enum SettingsTab: String, CaseIterable {
     case general = "General"
     case speech = "Speech"
+    case writing = "Writing"
     case snippets = "Snippets"
     case meetings = "Meetings"
     case about = "About"
@@ -64,6 +65,7 @@ enum SettingsTab: String, CaseIterable {
         switch self {
         case .general: return "gearshape"
         case .speech: return "mic"
+        case .writing: return "sparkles"
         case .snippets: return "text.badge.plus"
         case .meetings: return "person.2.wave.2"
         case .about: return "info.circle"
@@ -190,6 +192,7 @@ private struct SettingsView: View {
         TabView(selection: $model.tab) {
             GeneralTab(model: model).tabItem { Label("General", systemImage: SettingsTab.general.symbol) }.tag(SettingsTab.general)
             SpeechTab(model: model).tabItem { Label("Speech", systemImage: SettingsTab.speech.symbol) }.tag(SettingsTab.speech)
+            WritingTab(model: model).tabItem { Label("Writing", systemImage: SettingsTab.writing.symbol) }.tag(SettingsTab.writing)
             SnippetsTab(model: model).tabItem { Label("Snippets", systemImage: SettingsTab.snippets.symbol) }.tag(SettingsTab.snippets)
             MeetingsTab(model: model).tabItem { Label("Meetings", systemImage: SettingsTab.meetings.symbol) }.tag(SettingsTab.meetings)
             AboutTab(model: model).tabItem { Label("About", systemImage: SettingsTab.about.symbol) }.tag(SettingsTab.about)
@@ -311,6 +314,60 @@ private struct SpeechTab: View {
     private func add() {
         c.addVocabulary(newWord)
         newWord = ""
+    }
+}
+
+/// Cleanup (hotkey + ⌃) and Compose (hotkey + ⌃⌥): which models, and how long they stay loaded.
+private struct WritingTab: View {
+    @ObservedObject var model: SettingsModel
+    private var c: DictationController { model.controller }
+
+    var body: some View {
+        Form {
+            Section("Clean up") {
+                LabeledContent("Model", value: c.cleanerName)
+                if c.hasModes {
+                    Toggle("Clean up plain \(c.hotkeyDescription) too", isOn: Binding(
+                        get: { c.plainMode == .clean },
+                        set: { c.setPlainMode($0 ? .clean : .dictate) }))
+                        .disabled(![.dictate, .clean].contains(c.plainMode))
+                }
+                if let ollama = c.cleanupOllamaModel {
+                    Picker("Keep \(ollama) loaded", selection: Binding(get: { c.keepAlive }, set: { c.keepAlive = $0 })) {
+                        ForEach(KeepAlive.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                }
+            }
+            Section("Compose") {
+                LabeledContent("Model", value: c.composerName)
+                let choices = c.composeModelChoices
+                if !choices.isEmpty {
+                    Picker("Compose model", selection: Binding(get: { c.composeModelSetting }, set: { c.setComposeModel($0) })) {
+                        Text("Automatic" + (c.automaticComposeModel.map { " (\($0))" } ?? "")).tag("")
+                        ForEach(choices, id: \.self) { name in
+                            Text(name + (c.composeModelSize(name).map { " · \($0)" } ?? "")).tag(name)
+                        }
+                    }
+                    Text("Automatic picks the best one that fits this Mac. Pick a smaller one if writing feels slow.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if let suggestion = c.composeSuggestion {
+                    HStack {
+                        Text("Better for this Mac: \(suggestion)").font(.callout)
+                        Spacer()
+                        Button("Copy \"ollama pull\"") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString("ollama pull \(suggestion)", forType: .string)
+                        }
+                    }
+                }
+            }
+            Section {
+                LabeledContent("Meeting summaries", value: c.summaryName)
+                Button("Look for Ollama or LM Studio Again") { c.detectLocalLLM() }
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 
