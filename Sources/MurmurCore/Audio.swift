@@ -46,9 +46,10 @@ public enum Audio {
         return (sum / Float(samples.count)).squareRoot()
     }
 
-    /// True when no 50 ms window rises above `threshold` RMS. Whisper invents text
-    /// ("Thank you.") for silence, so silent clips are not sent at all.
-    public static func isSilent(_ samples: [Float], threshold: Float = 0.003, sampleRate: Int = Audio.sampleRate) -> Bool {
+    /// True when no 50 ms window rises above `threshold` RMS (about -56 dBFS). Whisper invents text
+    /// ("Thank you.") for silence, so silent clips are not sent at all. Low enough for a webcam
+    /// mic across a desk; a room with nobody talking stays under it.
+    public static func isSilent(_ samples: [Float], threshold: Float = 0.0015, sampleRate: Int = Audio.sampleRate) -> Bool {
         let window = max(1, sampleRate / 20)
         var start = 0
         while start < samples.count {
@@ -57,5 +58,26 @@ public enum Audio {
             start = end
         }
         return true
+    }
+
+    /// Brings quiet speech (a webcam or display mic across the room) up to a level Whisper hears
+    /// well: the loudest 50 ms window is raised to about -20 dBFS, at most 20× (+26 dB), without
+    /// clipping. Speech that is already loud enough is returned unchanged.
+    public static func boosted(_ samples: [Float], sampleRate: Int = Audio.sampleRate) -> [Float] {
+        let window = max(1, sampleRate / 20)
+        var loudest: Float = 0
+        var peak: Float = 0
+        var start = 0
+        while start < samples.count {
+            let end = min(samples.count, start + window)
+            loudest = max(loudest, rms(samples[start..<end]))
+            start = end
+        }
+        for s in samples { peak = max(peak, abs(s)) }
+        let target: Float = 0.1
+        guard loudest > 0, loudest < target / 2, peak > 0 else { return samples }
+        let gain = min(20, target / loudest, 0.98 / peak)
+        guard gain > 1.05 else { return samples }
+        return samples.map { $0 * gain }
     }
 }

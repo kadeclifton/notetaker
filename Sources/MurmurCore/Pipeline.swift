@@ -220,7 +220,7 @@ public struct DictationPipeline: Sendable {
 
     public func run(samples: [Float], context: CleanupContext,
                     onStage: (@Sendable (Stage) -> Void)? = nil) async throws -> PipelineResult {
-        let wav = Audio.wav(samples: samples)
+        let wav = Audio.wav(samples: Audio.boosted(samples))
         let transcribeStart = Date()
         let heard = try await transcriber.transcribe(wav: wav, language: language, prompt: prompt)
         let transcribeSeconds = Date().timeIntervalSince(transcribeStart)

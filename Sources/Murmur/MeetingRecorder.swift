@@ -72,6 +72,7 @@ final class MeetingRecorder {
             } catch {
                 // Keep going with the mic alone rather than losing the meeting; say so in the notes.
                 warnings.append("\(error)")
+                Permissions.reopenIfQuit()
                 Permissions.open(.screenRecording)
             }
         }

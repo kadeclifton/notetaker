@@ -404,6 +404,20 @@ final class DictationController {
         NSWorkspace.shared.open(folder)
     }
 
+    // MARK: Microphone
+
+    var microphones: [InputDevice] { AudioDevices.inputs() }
+    var microphoneUID: String? { AudioDevices.preferredUID }
+    var defaultMicrophoneName: String? { AudioDevices.systemDefault()?.name }
+
+    /// nil follows the system default.
+    func setMicrophone(_ uid: String?) {
+        AudioDevices.preferredUID = uid
+        let name = uid.flatMap { id in microphones.first { $0.uid == id }?.name } ?? "System default"
+        flash("Microphone: \(name)")
+        onChange?()
+    }
+
     // MARK: Vocabulary
 
     var vocabulary: [String] { config.transcription.vocabulary.filter { !$0.isEmpty } }
@@ -660,7 +674,11 @@ final class DictationController {
             return
         }
         if Audio.isSilent(samples) {
-            flash("No speech heard")
+            let mic = recorder.deviceName.map { "“\($0)”" } ?? "the microphone"
+            lastFailure = "No sound came from \(mic). Check its input level in System Settings → Sound → Input, "
+                + "or pick another in the menu bar: Microphone."
+            flash("No sound from \(recorder.deviceName ?? "the microphone")", isError: true)
+            onChange?()
             return
         }
         let pipeline: DictationPipeline

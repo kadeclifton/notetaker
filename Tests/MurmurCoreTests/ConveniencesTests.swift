@@ -29,7 +29,9 @@ final class TextTargetTests: XCTestCase {
         XCTAssertEqual(TextTarget.verdict(role: "AXWebArea", editable: nil), .text, "unknown roles still get the paste")
         XCTAssertEqual(TextTarget.verdict(role: "AXList", editable: false), .notText)
         XCTAssertEqual(TextTarget.verdict(role: "AXGroup", editable: true), .text, "editable wins over the role")
-        XCTAssertEqual(TextTarget.verdict(role: nil, editable: nil), .notText, "nothing focused")
+        XCTAssertEqual(TextTarget.verdict(role: nil, editable: nil), .text, "Chrome and Electron often report nothing")
+        XCTAssertEqual(TextTarget.verdict(role: "AXWindow", editable: nil), .text, "or only their window")
+        XCTAssertEqual(TextTarget.verdict(role: "AXButton", editable: nil), .notText)
     }
 }
 

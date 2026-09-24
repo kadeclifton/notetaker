@@ -88,6 +88,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
         if controller.usesLocalWhisper { menu.addItem(submenu("Speech Model", speechModelMenu())) }
+        menu.addItem(submenu("Microphone", microphoneMenu()))
         menu.addItem(submenu("Vocabulary", vocabularyMenu()))
         menu.addItem(submenu("Cleanup & Compose", writingMenu()))
         menu.addItem(submenu("Settings", settingsMenu()))
@@ -179,6 +180,30 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(info("Click one to copy it. Kept only until Murmur quits."))
         menu.addItem(item("Clear", action: #selector(clearRecent)))
+        return menu
+    }
+
+    /// Which mic to record from. "System default" follows System Settings → Sound → Input.
+    private func microphoneMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let picked = controller.microphoneUID
+        let devices = controller.microphones
+        let followDefault = item("System Default" + (controller.defaultMicrophoneName.map { " (\($0))" } ?? ""),
+                                 action: #selector(selectMicrophone(_:)))
+        followDefault.representedObject = ""
+        followDefault.state = picked == nil || !devices.contains(where: { $0.uid == picked }) ? .on : .off
+        menu.addItem(followDefault)
+        menu.addItem(.separator())
+        for device in devices {
+            let choice = item(device.name, action: #selector(selectMicrophone(_:)))
+            choice.representedObject = device.uid
+            choice.state = device.uid == picked ? .on : .off
+            menu.addItem(choice)
+        }
+        if let picked, !devices.contains(where: { $0.uid == picked }) {
+            menu.addItem(info("The mic you picked isn't connected; using the default."))
+        }
         return menu
     }
 
@@ -423,6 +448,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
     }
 
+    @objc private func selectMicrophone(_ sender: NSMenuItem) {
+        guard let uid = sender.representedObject as? String else { return }
+        controller.setMicrophone(uid.isEmpty ? nil : uid)
+    }
+
     @objc private func copyRecent(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let id = UUID(uuidString: raw) else { return }
         controller.copyRecent(id)
@@ -482,6 +512,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
 
     @objc private func quit() {
+        Permissions.cancelReopen()
         NSApp.terminate(nil)
     }
 

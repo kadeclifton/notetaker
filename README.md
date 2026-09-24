@@ -126,6 +126,9 @@ Click the wave in the menu bar:
 - **Compose Library…** (⌘L): everything Compose has written.
 - **Recent**: the last 10 dictations and composes, click to copy again (kept in memory only).
 - **Vocabulary**: add or remove the names and jargon passed to Whisper (`transcription.vocabulary`).
+- **Microphone**: record from a specific mic instead of the system default (useful in clamshell mode
+  with a webcam or display mic). A silent recording names the mic it listened to. Quiet mics are
+  boosted (up to +26 dB) before transcription.
 - **Speech Model**: Fastest / Balanced / Most accurate, and how long the last dictation took.
 - **Cleanup & Compose**: whether plain fn cleans up too, which models clean up and compose, how long
   Ollama keeps the cleanup model loaded, and **Compose Model** (Automatic picks the best one that fits
@@ -185,8 +188,9 @@ Model** overrides the choice (it sets `compose.model`). Murmur starts loading th
 you press ⌃⌥, while you are still talking. With a Groq, OpenAI or Anthropic key, `"provider": "auto"`
 uses that instead; set `"provider": "local"` under `compose` to keep it on your Mac.
 
-With no text box focused (the desktop, a Finder list, a button), Murmur doesn't paste into nothing:
-the text stays on the clipboard and the pill says so. The pill shows **Transcribing**, then
+When a control that can't take text has focus (a Finder list, a button), Murmur doesn't paste into
+it: the text stays on the clipboard and the pill says so. Anything uncertain, including browsers
+and Electron apps that report no focused element, gets the paste as usual. The pill shows **Transcribing**, then
 **Cleaning up**, and the menu bar wave pulses while either runs.
 
 **Memory.** whisper-server stops after 30 minutes without dictation
