@@ -213,16 +213,24 @@ struct PillView: View {
 private struct ModeTag: View {
     var mode: DictationMode
 
+    static func color(_ mode: DictationMode) -> Color {
+        switch mode {
+        case .compose: return Color.purple.opacity(0.85)
+        case .edit: return Color.orange.opacity(0.85)
+        case .dictate, .clean: return Color.blue.opacity(0.75)
+        }
+    }
+
     var body: some View {
         switch mode {
         case .dictate:
             EmptyView()
-        case .clean, .compose:
+        case .clean, .compose, .edit:
             Text(mode.title)
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(Capsule().fill(mode == .compose ? Color.purple.opacity(0.85) : Color.blue.opacity(0.75)))
+                .background(Capsule().fill(Self.color(mode)))
         }
     }
 }

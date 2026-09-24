@@ -216,7 +216,7 @@ public struct DictationPipeline: Sendable {
             language: language.isEmpty || language == "auto" ? nil : language,
             prompt: vocabulary.isEmpty ? nil : vocabulary.joined(separator: ", ") + ".",
             snippets: config.snippets,
-            voiceCommands: mode != .compose
+            voiceCommands: mode == .dictate || mode == .clean
         )
     }
 

@@ -134,3 +134,82 @@ final class LaunchReadinessTests: XCTestCase {
         XCTAssertNotNil(VoiceCommands.problem(with: Snippet(say: "new line", insert: "x")))
     }
 }
+
+final class NextReleaseTests: XCTestCase {
+    func testShiftPicksEdit() {
+        XCTAssertEqual(ModeKeys(extraModifiers: [.shift]), .shift)
+        XCTAssertEqual(ModeKeys(extraModifiers: [.control, .shift]), .shift)
+        XCTAssertEqual(ModeKeys(extraModifiers: [.control]), .control)
+        XCTAssertEqual(Config().modes.mode(for: .shift), .edit)
+        XCTAssertEqual(ModeKeys.shift.label(hotkey: "fn"), "fn⇧")
+        XCTAssertTrue(ModeKeys.shift > .controlOption, "⇧ joining later still upgrades the recording")
+        XCTAssertEqual(try Config.parse(Config.defaultFileContents), Config())
+    }
+
+    func testEditReplyIsCleaned() {
+        XCTAssertEqual(EditPrompt.clean("<think>hmm</think>\n\"Shorter text.\"", original: "A much longer text."), "Shorter text.")
+        XCTAssertEqual(EditPrompt.clean("```markdown\n- one\n- two\n```", original: "one, two"), "- one\n- two")
+        XCTAssertEqual(EditPrompt.clean("<text>\nHola\n</text>", original: "Hello"), "Hola")
+        XCTAssertEqual(EditPrompt.clean("\"Quoted\"", original: "\"quoted\""), "\"Quoted\"", "quotes the original had stay")
+        XCTAssertTrue(EditPrompt.user(text: "Hi", instruction: "make it formal").contains("<text>\nHi\n</text>"))
+    }
+
+    func testEditorUsesTheModel() async throws {
+        struct Echo: ChatModel {
+            var name: String { "echo" }
+            func complete(system: String, user: String, maxTokens: Int, timeout: TimeInterval) async throws -> String {
+                XCTAssertTrue(user.contains("<instruction>\nshorter\n</instruction>"))
+                return "Short."
+            }
+        }
+        let edited = try await Editor(chat: Echo()).edit("A long sentence here.", instruction: "shorter")
+        XCTAssertEqual(edited, "Short.")
+    }
+
+    func testDictateAndCleanOnlyGetVoiceCommands() throws {
+        var config = Config()
+        config.transcription.engine = .groq
+        let env = ["GROQ_API_KEY": "k"]
+        XCTAssertFalse(try DictationPipeline(config: config, env: env, mode: .edit).voiceCommands)
+        XCTAssertNil(try DictationPipeline(config: config, env: env, mode: .edit).cleaner)
+    }
+
+    func testCallEndOffer() {
+        let t0 = Date(timeIntervalSince1970: 0)
+        var call = CallEndDetector(quietApps: 30, silence: 300)
+        XCTAssertFalse(call.update(othersUsingMic: true, sinceSpeech: 5, now: t0))
+        XCTAssertFalse(call.update(othersUsingMic: false, sinceSpeech: 10, now: t0 + 10))
+        XCTAssertTrue(call.update(othersUsingMic: false, sinceSpeech: 45, now: t0 + 45), "the call app let go 35 s ago")
+        XCTAssertFalse(call.update(othersUsingMic: false, sinceSpeech: 60, now: t0 + 60), "offered once")
+        XCTAssertFalse(call.update(othersUsingMic: true, sinceSpeech: 1, now: t0 + 70), "back on the call")
+        XCTAssertFalse(call.update(othersUsingMic: false, sinceSpeech: 5, now: t0 + 80))
+        XCTAssertTrue(call.update(othersUsingMic: false, sinceSpeech: 30, now: t0 + 115))
+
+        var room = CallEndDetector(quietApps: 30, silence: 300)
+        XCTAssertFalse(room.update(othersUsingMic: false, sinceSpeech: 10, now: t0 + 100), "in-person: no call app ever used the mic")
+        XCTAssertTrue(room.update(othersUsingMic: false, sinceSpeech: 301, now: t0 + 400), "but five silent minutes still count")
+
+        var unknown = CallEndDetector(quietApps: 30, silence: 300)
+        XCTAssertFalse(unknown.update(othersUsingMic: nil, sinceSpeech: 200, now: t0))
+        XCTAssertTrue(unknown.update(othersUsingMic: nil, sinceSpeech: 300, now: t0 + 100))
+    }
+
+    func testStats() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var stats = UsageStats()
+        stats.record(words: 400, spoken: 120, on: now, calendar: calendar)
+        stats.record(words: 0, spoken: 5, on: now, calendar: calendar)
+        stats.record(words: 100, spoken: 30, on: now.addingTimeInterval(-3 * 86400), calendar: calendar)
+        stats.record(words: 50, spoken: 10, on: now.addingTimeInterval(-10 * 86400), calendar: calendar)
+        let week = stats.summary(lastDays: 7, now: now, calendar: calendar)
+        XCTAssertEqual(week.words, 500)
+        XCTAssertEqual(week.dictations, 2)
+        XCTAssertEqual(week.minutesSaved, 500.0 / 40 - 150.0 / 60, accuracy: 0.001)
+        XCTAssertEqual(stats.summary(lastDays: 30, now: now, calendar: calendar).words, 550)
+        stats.record(words: 1, spoken: 1, on: now.addingTimeInterval(95 * 86400), calendar: calendar)
+        XCTAssertEqual(stats.days.count, 1, "older than 90 days is dropped")
+        XCTAssertEqual(UsageStats.wordCount("Hi Sam,\nthanks  for it"), 5)
+    }
+}

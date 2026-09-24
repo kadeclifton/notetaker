@@ -98,6 +98,34 @@ enum AudioDevices {
         }
     }
 
+    /// Whether any app other than Murmur is recording from a microphone right now. Nil before
+    /// macOS 14.2, which is when Core Audio started saying which process records.
+    static func otherAppsUsingInput() -> Bool? {
+        guard #available(macOS 14.2, *) else { return nil }
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return nil }
+        var processes = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &processes) == noErr else { return nil }
+        let own = ProcessInfo.processInfo.processIdentifier
+        return processes.contains { process in
+            var pid: pid_t = 0
+            var pidSize = UInt32(MemoryLayout<pid_t>.size)
+            var pidAddress = AudioObjectPropertyAddress(mSelector: kAudioProcessPropertyPID, mScope: kAudioObjectPropertyScopeGlobal,
+                                                        mElement: kAudioObjectPropertyElementMain)
+            guard AudioObjectGetPropertyData(process, &pidAddress, 0, nil, &pidSize, &pid) == noErr, pid != own else { return false }
+            var running: UInt32 = 0
+            var runningSize = UInt32(MemoryLayout<UInt32>.size)
+            var runningAddress = AudioObjectPropertyAddress(mSelector: kAudioProcessPropertyIsRunningInput,
+                                                            mScope: kAudioObjectPropertyScopeGlobal,
+                                                            mElement: kAudioObjectPropertyElementMain)
+            return AudioObjectGetPropertyData(process, &runningAddress, 0, nil, &runningSize, &running) == noErr && running != 0
+        }
+    }
+
     /// Some app (possibly Murmur) is recording from a microphone right now.
     static func anyInputInUse() -> Bool {
         inputs().contains { device in

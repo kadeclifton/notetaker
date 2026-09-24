@@ -8,12 +8,16 @@ public enum DictationMode: String, Codable, Sendable, CaseIterable {
     case clean
     /// A rambling draft turned into finished writing, shown in a preview before inserting.
     case compose
+    /// What you say is an instruction for the selected text ("make this shorter"); the selection
+    /// is replaced with the result.
+    case edit
 
     public var title: String {
         switch self {
         case .dictate: return "Dictate"
         case .clean: return "Clean Up"
         case .compose: return "Compose"
+        case .edit: return "Edit"
         }
     }
 }
@@ -27,9 +31,13 @@ public enum ModeKeys: Int, Comparable, Sendable, CaseIterable {
     case control
     /// Hotkey + ⌃ + ⌥.
     case controlOption
+    /// Hotkey + ⇧: edit the selection. Wins over the others whenever ⇧ joins.
+    case shift
 
     public init(extraModifiers modifiers: ShortcutModifiers) {
-        if modifiers.contains(.control) {
+        if modifiers.contains(.shift) {
+            self = .shift
+        } else if modifiers.contains(.control) {
             self = modifiers.contains(.option) ? .controlOption : .control
         } else {
             self = .plain
@@ -44,6 +52,7 @@ public enum ModeKeys: Int, Comparable, Sendable, CaseIterable {
         case .plain: return hotkey
         case .control: return hotkey + "⌃"
         case .controlOption: return hotkey + "⌃⌥"
+        case .shift: return hotkey + "⇧"
         }
     }
 }
@@ -55,6 +64,8 @@ public struct ModesConfig: Codable, Equatable, Sendable {
     public var withControl: DictationMode = .clean
     /// Hotkey + ⌃ + ⌥.
     public var withControlOption: DictationMode = .compose
+    /// Hotkey + ⇧.
+    public var withShift: DictationMode = .edit
 
     public init() {}
 
@@ -63,6 +74,7 @@ public struct ModesConfig: Codable, Equatable, Sendable {
         case .plain: return hotkey
         case .control: return withControl
         case .controlOption: return withControlOption
+        case .shift: return withShift
         }
     }
 }

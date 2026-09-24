@@ -249,6 +249,14 @@ private struct GeneralTab: View {
                 }
             }
             Section {
+                LabeledContent("Paste last again") {
+                    Text(c.pasteLastShortcutName ?? "off").font(.system(.body, design: .rounded).weight(.semibold))
+                }
+                Text("Types your last dictation again, wherever you are. Change it with insertion.pasteLastShortcut in the settings file.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            StatsSection(controller: c)
+            Section {
                 Toggle("Dictation on", isOn: Binding(get: { c.enabled }, set: { c.enabled = $0 }))
                 Toggle("Launch at login", isOn: Binding(get: { LoginItem.isEnabled }, set: { on in _ = try? LoginItem.set(on) }))
                 Toggle("Sounds", isOn: Binding(get: { c.config.feedback.sounds }, set: { on in
@@ -321,6 +329,38 @@ private struct SpeechTab: View {
     private func add() {
         c.addVocabulary(newWord)
         newWord = ""
+    }
+}
+
+/// Words dictated and typing time saved, counted on this Mac only.
+private struct StatsSection: View {
+    let controller: DictationController
+    @State private var confirmReset = false
+
+    var body: some View {
+        let week = controller.stats.summary(lastDays: 7)
+        let quarter = controller.stats.summary(lastDays: UsageStats.keepDays)
+        Section("Your dictation") {
+            LabeledContent("This week", value: Self.describe(week))
+            LabeledContent("Last 90 days", value: Self.describe(quarter))
+            HStack {
+                Text("Time saved compares your words with typing at \(Int(UsageStats.typingWPM)) words a minute. Counted on this Mac only.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Reset") { confirmReset = true }.controlSize(.small)
+            }
+        }
+        .confirmationDialog("Reset your dictation stats?", isPresented: $confirmReset) {
+            Button("Reset", role: .destructive) { controller.resetStats() }
+        }
+    }
+
+    static func describe(_ summary: UsageStats.Summary) -> String {
+        guard summary.words > 0 else { return "nothing yet" }
+        let words = summary.words.formatted()
+        let minutes = Int(summary.minutesSaved.rounded())
+        let saved = minutes >= 60 ? "\(minutes / 60) h \(minutes % 60) min" : "\(minutes) min"
+        return "\(words) words · about \(saved) saved"
     }
 }
 
@@ -466,6 +506,9 @@ private struct MeetingsTab: View {
                 }))
                 Text("When Zoom, Teams, FaceTime, Slack or a browser starts using the microphone, Murmur asks. It never records without you saying yes.")
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle("Offer to stop when the call ends", isOn: Binding(get: { c.config.meeting.offerToStopWhenCallEnds }, set: { on in
+                    c.editSettings("meeting", "offerToStopWhenCallEnds", json: on ? "true" : "false") { $0.meeting.offerToStopWhenCallEnds == on }
+                }))
                 Toggle("Record the call's audio, not just my mic", isOn: Binding(get: { c.config.meeting.captureSystemAudio }, set: { on in
                     c.editSettings("meeting", "captureSystemAudio", json: on ? "true" : "false") { $0.meeting.captureSystemAudio == on }
                 }))
