@@ -164,7 +164,7 @@ final class PipelineCommandTests: XCTestCase {
     }
 
     func testComposeIgnoresCommands() async throws {
-        let result = try await run("Scratch that.", commands: false)
+        let result = try await run("Meet at three, scratch that.", commands: false)
         XCTAssertNil(result.command)
         XCTAssertEqual(result.text, "CLEANED")
     }

@@ -58,6 +58,46 @@ enum AudioDevices {
         return systemDefault()
     }
 
+    /// Calls `handler` on the main queue when microphones are plugged in or removed, or the
+    /// default changes. Returns what stops it.
+    static func observeChanges(_ handler: @escaping @MainActor () -> Void) -> () -> Void {
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        let selectors = [kAudioHardwarePropertyDevices, kAudioHardwarePropertyDefaultInputDevice]
+        let block: AudioObjectPropertyListenerBlock = { _, _ in
+            MainActor.assumeIsolated { handler() }
+        }
+        for selector in selectors {
+            var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
+                                                     mElement: kAudioObjectPropertyElementMain)
+            AudioObjectAddPropertyListenerBlock(system, &address, .main, block)
+        }
+        return {
+            for selector in selectors {
+                var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
+                                                         mElement: kAudioObjectPropertyElementMain)
+                AudioObjectRemovePropertyListenerBlock(system, &address, .main, block)
+            }
+        }
+    }
+
+    /// Calls `handler` on the main queue whenever any of these microphones starts or stops being
+    /// used by some app. Returns what stops it.
+    static func observeInUse(_ devices: [InputDevice], _ handler: @escaping @MainActor () -> Void) -> () -> Void {
+        let block: AudioObjectPropertyListenerBlock = { _, _ in
+            MainActor.assumeIsolated { handler() }
+        }
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        for device in devices { AudioObjectAddPropertyListenerBlock(device.id, &address, .main, block) }
+        return {
+            var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
+                                                     mScope: kAudioObjectPropertyScopeGlobal,
+                                                     mElement: kAudioObjectPropertyElementMain)
+            for device in devices { AudioObjectRemovePropertyListenerBlock(device.id, &address, .main, block) }
+        }
+    }
+
     /// Some app (possibly Murmur) is recording from a microphone right now.
     static func anyInputInUse() -> Bool {
         inputs().contains { device in

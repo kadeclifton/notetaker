@@ -32,6 +32,8 @@ cmake --build "$SRC/build" --config Release -j "$(sysctl -n hw.ncpu)" --target w
 
 mkdir -p "$OUT/bin"
 cp "$SRC/build/bin/whisper-server" "$SRC/build/bin/whisper-cli" "$OUT/bin/"
+# Local symbols are only for debugging; dropping them makes the download smaller.
+strip -x "$OUT"/bin/*
 echo "$VERSION" >"$OUT/VERSION"
 
 # Shipped inside the app, they may only use what every Mac has.

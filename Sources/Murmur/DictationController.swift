@@ -621,7 +621,21 @@ final class DictationController {
 
     // MARK: Microphone
 
-    var microphones: [InputDevice] { AudioDevices.inputs() }
+    /// Cached: Settings redraws often, and macOS says when microphones change.
+    var microphones: [InputDevice] {
+        if let cachedMicrophones { return cachedMicrophones }
+        if stopObservingMicrophones == nil {
+            stopObservingMicrophones = AudioDevices.observeChanges { [weak self] in
+                self?.cachedMicrophones = nil
+                self?.onChange?()
+            }
+        }
+        let inputs = AudioDevices.inputs()
+        cachedMicrophones = inputs
+        return inputs
+    }
+    private var cachedMicrophones: [InputDevice]?
+    private var stopObservingMicrophones: (() -> Void)?
     var microphoneUID: String? { AudioDevices.preferredUID }
     var defaultMicrophoneName: String? { AudioDevices.systemDefault()?.name }
 
@@ -803,6 +817,7 @@ final class DictationController {
         idleTimer?.invalidate()
         idleTimer = nil
         warmWhisperServer()
+        startEarlyTranscription()
         recorder.start { [weak self] error in
             guard let self, let error else { return }
             if self.machine.isRecording {
@@ -820,6 +835,11 @@ final class DictationController {
 
     private func tick() {
         guard machine.isRecording else { stopTicking(); return }
+        ticksSinceDrain += 1
+        if early != nil, ticksSinceDrain >= 20 {
+            ticksSinceDrain = 0
+            feedEarly(recorder.takeRecorded())
+        }
         let actions = machine.handle(.tick, at: now)
         if !actions.isEmpty {
             run(actions)
@@ -860,6 +880,7 @@ final class DictationController {
         recordingAnnounced = false
         stopTicking()
         recorder.stop { _ in }
+        cancelEarly()
         switch reason {
         case .escape where wasAnnounced:
             play("Funk")
@@ -880,8 +901,10 @@ final class DictationController {
         // Compose adapts to the page too (Gmail vs. ChatGPT in the same browser).
         let context = CleanupContext(appName: target?.localizedName,
                                      windowTitle: mode == .compose ? FocusedWindow.title(of: target) : nil)
-        recorder.stop { [weak self] samples in
-            self?.transcribe(samples, reason: reason, context: context, mode: mode, target: target)
+        recorder.stop { [weak self] rest in
+            guard let self else { return }
+            let (samples, early) = self.collectRecording(rest)
+            self.transcribe(samples, early: early, reason: reason, context: context, mode: mode, target: target)
         }
         if config.feedback.pill {
             if mode == .compose {
@@ -893,8 +916,12 @@ final class DictationController {
         }
     }
 
-    private func transcribe(_ samples: [Float], reason: FinishReason, context: CleanupContext,
-                            mode: DictationMode, target: NSRunningApplication?) {
+    private func transcribe(_ samples: [Float], early: Task<IncrementalTranscription?, Never>?, reason: FinishReason,
+                            context: CleanupContext, mode: DictationMode, target: NSRunningApplication?) {
+        let tooShortOrSilent = Audio.duration(of: samples) < 0.2 || Audio.isSilent(samples)
+        if tooShortOrSilent, let early {
+            Task { await early.value?.cancel() }
+        }
         if Audio.duration(of: samples) < 0.2 {
             refreshPill()
             return
@@ -922,7 +949,7 @@ final class DictationController {
                 composer = nil
                 lastFailure = "Compose: \(error)"
             }
-            compose.start(samples: samples,
+            compose.start(samples: samples, early: early,
                           setup: .init(pipeline: pipeline, composer: composer, store: LibraryStore(config: config.compose),
                                        insertion: config.insertion, defaultStyle: config.compose.defaultStyle),
                           context: context, target: target)
@@ -939,7 +966,7 @@ final class DictationController {
         processingStep = "Transcribing"
         let job = Task { [weak self] in
             do {
-                let result = try await pipeline.run(samples: samples, context: context) { stage in
+                let result = try await pipeline.run(samples: samples, incremental: await early?.value, context: context) { stage in
                     guard stage == .cleaningUp else { return }
                     Task { @MainActor [weak self] in
                         guard let self, self.jobs[id] != nil else { return }
@@ -998,6 +1025,49 @@ final class DictationController {
         }
         if let message { flash(message) } else { refreshPill() }
         onChange?()
+    }
+
+    // MARK: Early transcription
+
+    /// A long recording is transcribed in pieces while you talk (see `IncrementalTranscription`).
+    private var early: IncrementalTranscription?
+    /// Feeds the pieces in the order they were recorded.
+    private var earlyFeed: Task<Void, Never>?
+    /// Everything recorded so far; the recorder's own buffer is drained into this every second.
+    private var earlyRecorded: [Float] = []
+    private var ticksSinceDrain = 0
+
+    private func startEarlyTranscription() {
+        cancelEarly()
+        guard let pipeline = try? DictationPipeline(config: config, env: env, local: localLLM, mode: .dictate) else { return }
+        early = IncrementalTranscription(transcriber: pipeline.transcriber, language: pipeline.language, prompt: pipeline.prompt)
+    }
+
+    private func feedEarly(_ samples: [Float]) {
+        guard let early, !samples.isEmpty else { return }
+        earlyRecorded += samples
+        let previous = earlyFeed
+        earlyFeed = Task { await previous?.value; await early.append(samples) }
+    }
+
+    /// The whole recording, and the early transcription once it has every sample.
+    private func collectRecording(_ rest: [Float]) -> ([Float], Task<IncrementalTranscription?, Never>?) {
+        guard let early else { return (rest, nil) }
+        feedEarly(rest)
+        let samples = earlyRecorded
+        let feed = earlyFeed
+        self.early = nil
+        earlyFeed = nil
+        earlyRecorded = []
+        return (samples, Task { await feed?.value; return early })
+    }
+
+    private func cancelEarly() {
+        if let early { Task { await early.cancel() } }
+        early = nil
+        earlyFeed = nil
+        earlyRecorded = []
+        ticksSinceDrain = 0
     }
 
     // MARK: Undo
@@ -1098,6 +1168,7 @@ final class DictationController {
             recorder.stop { _ in }
             machine.reset()
         }
+        cancelEarly()
         recordingAnnounced = false
         stopTicking()
         cancelJobs(showMessage: false)

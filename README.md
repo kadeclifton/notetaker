@@ -210,7 +210,13 @@ reasoning regardless) when another model fits, since they spend 20 to 40 seconds
 Silent recordings are dropped before transcription, since Whisper tends to invent text
 ("Thanks for watching!") for silence.
 
-**Speed.** With the local model, Murmur keeps `whisper-server` (shipped inside Murmur.app, or
+**Speed.** Recordings longer than about 20 seconds are transcribed in pieces while you talk (cut at
+pauses, each piece given the end of the last as context), so letting go only leaves the last piece.
+Silence before the first word and after the last is trimmed before transcription. Phrases under four
+words skip cleanup (it would only cost time). Saying "new line" or "new paragraph" breaks lines in
+dictate and clean modes.
+
+With the local model, Murmur keeps `whisper-server` (shipped inside Murmur.app, or
 Homebrew's) running in the background with the model loaded, so a dictation only waits for the transcription
 itself, not a model load. The very first transcription after installing is still slow: macOS compiles
 Whisper's GPU code once. Set `whisperCpp.keepModelLoaded` to `false` to go back to running

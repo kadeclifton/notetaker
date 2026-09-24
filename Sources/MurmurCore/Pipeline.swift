@@ -238,14 +238,23 @@ public struct DictationPipeline: Sendable {
         case cleaningUp
     }
 
-    public func run(samples: [Float], context: CleanupContext,
+    /// Phrases this short go in as heard: cleanup would only cost time.
+    static let shortPhraseWords = 4
+
+    /// - Parameter incremental: pieces of a long recording already transcribed while it ran.
+    public func run(samples: [Float], incremental: IncrementalTranscription? = nil, context: CleanupContext,
                     onStage: (@Sendable (Stage) -> Void)? = nil) async throws -> PipelineResult {
-        let wav = Audio.wav(samples: Audio.boosted(samples))
         let transcribeStart = Date()
-        let heard = try await transcriber.transcribe(wav: wav, language: language, prompt: prompt)
+        let heard: String
+        if let early = try await incremental?.finish() {
+            heard = early
+        } else {
+            let wav = Audio.wav(samples: Audio.boosted(Audio.trimmingSilence(samples)))
+            heard = try await transcriber.transcribe(wav: wav, language: language, prompt: prompt)
+        }
         let transcribeSeconds = Date().timeIntervalSince(transcribeStart)
         try Task.checkCancellation()
-        let transcript = TranscriptFilter.clean(heard)
+        var transcript = TranscriptFilter.clean(heard)
         guard !transcript.isEmpty else {
             return PipelineResult(transcript: "", text: "", cleanupProblem: nil, transcribeSeconds: transcribeSeconds)
         }
@@ -262,8 +271,10 @@ public struct DictationPipeline: Sendable {
                 command.transcribeSeconds = transcribeSeconds
                 return command
             }
+            transcript = VoiceCommands.applyFormatting(transcript)
         }
-        guard let cleaner else {
+        let words = transcript.split(whereSeparator: \.isWhitespace).count
+        guard let cleaner, words >= Self.shortPhraseWords else {
             return PipelineResult(transcript: transcript, text: transcript, cleanupProblem: nil, transcribeSeconds: transcribeSeconds)
         }
         onStage?(.cleaningUp)

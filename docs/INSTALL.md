@@ -43,7 +43,9 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
   message, email, bullets and so on. Say "as bullet points" or "make it an email" to steer it, or pick
   a style in the panel. Press Return to insert it. Everything is kept in the **Library** (⌘L
   from the menu). Cleanup and Compose need the optional model below.
-- **Double-tap fn** for hands-free; tap fn again to finish.
+- **Double-tap fn** for hands-free; tap fn again to finish. Long dictations are transcribed while
+  you talk, so the text is ready moments after you stop.
+- Say **"new line"** or **"new paragraph"** to break lines while dictating.
 - **Esc** cancels.
 - Say **"scratch that"** on its own to undo the last dictation (Murmur presses ⌘Z in that app). End
   a sentence with "scratch that" and nothing from it is typed.

@@ -60,6 +60,31 @@ public enum Audio {
         return true
     }
 
+    /// Drops the silence before the first sound and after the last, keeping `padding` seconds on
+    /// each side so no word is clipped. Holding the key a moment before talking no longer costs
+    /// transcription time, and Whisper gets less silence to invent words for. All silence: unchanged.
+    public static func trimmingSilence(_ samples: [Float], threshold: Float = 0.0015, padding: TimeInterval = 0.3,
+                                       sampleRate: Int = Audio.sampleRate) -> [Float] {
+        let window = max(1, sampleRate / 50)
+        var first: Int?
+        var last = 0
+        var start = 0
+        while start < samples.count {
+            let end = min(samples.count, start + window)
+            if rms(samples[start..<end]) > threshold {
+                if first == nil { first = start }
+                last = end
+            }
+            start = end
+        }
+        guard let first else { return samples }
+        let pad = Int(padding * Double(sampleRate))
+        let from = max(0, first - pad)
+        let to = min(samples.count, last + pad)
+        if from == 0 && to == samples.count { return samples }
+        return Array(samples[from..<to])
+    }
+
     /// Brings quiet speech (a webcam or display mic across the room) up to a level Whisper hears
     /// well: the loudest 50 ms window is raised to about -20 dBFS, at most 20× (+26 dB), without
     /// clipping. Speech that is already loud enough is returned unchanged.
