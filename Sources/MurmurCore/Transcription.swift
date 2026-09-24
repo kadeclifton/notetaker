@@ -136,14 +136,23 @@ public struct WhisperCppTranscriber: Transcriber {
         "/usr/local/bin/whisper-cpp",
     ]
 
-    /// `whisper-server` next to the configured `whisper-cli`, or in the usual places and PATH.
-    public static func locateServer(configuredCli: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+    /// Where the app keeps the whisper.cpp it ships with (built with Core ML, so it can use the
+    /// Neural Engine): next to Murmur's own executable.
+    public static var bundledDirectory: String? {
+        Bundle.main.executableURL?.deletingLastPathComponent().path
+    }
+
+    /// `whisper-server` next to the configured `whisper-cli`, else the one inside Murmur.app, else
+    /// the usual places and PATH.
+    public static func locateServer(configuredCli: String, environment: [String: String] = ProcessInfo.processInfo.environment,
+                                    bundled: String? = bundledDirectory) -> String? {
         let fm = FileManager.default
         if !configuredCli.isEmpty {
             let sibling = (AppPaths.expandTilde(configuredCli) as NSString).deletingLastPathComponent + "/whisper-server"
             return fm.isExecutableFile(atPath: sibling) ? sibling : nil
         }
-        var candidates = searchPaths
+        var candidates = bundled.map { ["\($0)/whisper-server"] } ?? []
+        candidates += searchPaths
             .filter { $0.hasSuffix("/whisper-cli") }
             .map { AppPaths.expandTilde(String($0.dropLast("whisper-cli".count)) + "whisper-server") }
         for dir in (environment["PATH"] ?? "").split(separator: ":") {
@@ -153,13 +162,15 @@ public struct WhisperCppTranscriber: Transcriber {
     }
 
     /// Resolves the configured binary, or searches the usual places and PATH.
-    public static func locateBinary(configured: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+    public static func locateBinary(configured: String, environment: [String: String] = ProcessInfo.processInfo.environment,
+                                    bundled: String? = bundledDirectory) -> String? {
         let fm = FileManager.default
         if !configured.isEmpty {
             let path = AppPaths.expandTilde(configured)
             return fm.isExecutableFile(atPath: path) ? path : nil
         }
-        var candidates = searchPaths.map(AppPaths.expandTilde)
+        var candidates = bundled.map { ["\($0)/whisper-cli"] } ?? []
+        candidates += searchPaths.map(AppPaths.expandTilde)
         for dir in (environment["PATH"] ?? "").split(separator: ":") {
             candidates.append("\(dir)/whisper-cli")
         }

@@ -21,8 +21,17 @@ jobs:
         run: swift build
       - name: Test
         run: swift test
+      - name: Cache whisper.cpp
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/whisper/bin
+            build/whisper/VERSION
+          key: whisper-cpp-${{ hashFiles('scripts/build-whisper.sh') }}
+      - name: Build whisper.cpp with Core ML
+        run: scripts/build-whisper.sh
       - name: Package the app
-        run: MURMUR_VERSION=v0.0.0-ci scripts/build-app.sh
+        run: MURMUR_REQUIRE_WHISPER=1 MURMUR_VERSION=v0.0.0-ci scripts/build-app.sh
       - name: Check the bundle
         run: |
           plutil -lint build/Murmur.app/Contents/Info.plist
@@ -35,24 +44,30 @@ jobs:
           xcrun assetutil --info build/Murmur.app/Contents/Resources/Assets.car | grep -i -E 'appearance|AppIcon' | sort -u | head -20
           lipo -archs build/Murmur.app/Contents/MacOS/Murmur | grep -qx arm64
           plutil -extract CFBundleShortVersionString raw build/Murmur.app/Contents/Info.plist | grep -qx 0.0.0-ci
-      - name: Does Homebrew's whisper.cpp use Core ML? (information only)
-        continue-on-error: true
+      - name: Check the bundled whisper.cpp
         run: |
-          brew install whisper-cpp >/dev/null 2>&1 || true
-          PREFIX="$(brew --prefix whisper-cpp)"
-          brew info whisper-cpp | head -5
-          ls "$PREFIX/bin" "$PREFIX/lib" 2>/dev/null | head -40
-          for f in "$PREFIX"/lib/*.dylib "$PREFIX/bin/whisper-server" "$PREFIX/bin/whisper-cli"; do
-            [ -e "$f" ] || continue
-            echo "== $f"
-            otool -L "$f" | grep -iE "coreml|metal|accelerate|libwhisper|libggml" || true
+          codesign --verify --deep --strict --verbose build/Murmur.app
+          for bin in whisper-server whisper-cli; do
+            test -x "build/Murmur.app/Contents/MacOS/$bin"
+            otool -L "build/Murmur.app/Contents/MacOS/$bin"
           done
-          echo "== Core ML strings"
-          for f in "$PREFIX"/lib/*.dylib "$PREFIX/bin/whisper-server"; do
-            [ -e "$f" ] && strings "$f" | grep -iE "coreml|mlmodelc" | sort -u | head -5
+          otool -L build/Murmur.app/Contents/MacOS/whisper-server | grep -q CoreML.framework
+          build/Murmur.app/Contents/MacOS/whisper-server --help 2>&1 | grep -q -- "--port"
+          # A tiny model end to end: the bundled server loads it and answers.
+          curl -sfL -o "$RUNNER_TEMP/ggml-tiny.en.bin" https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+          build/Murmur.app/Contents/MacOS/whisper-server -m "$RUNNER_TEMP/ggml-tiny.en.bin" --port 47999 >"$RUNNER_TEMP/server.log" 2>&1 &
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:47999/ >/dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:47999/ >/dev/null || { tail -30 "$RUNNER_TEMP/server.log"; exit 1; }
+          kill %1
+          grep -iE "coreml|metal" "$RUNNER_TEMP/server.log" | head -10 || true
+      - name: The Core ML encoders Murmur offers exist
+        run: |
+          for name in base.en small.en large-v3-turbo; do
+            url="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$name-encoder.mlmodelc.zip"
+            size="$(curl -sfIL "$url" | grep -i '^content-length' | tail -1 | tr -dc 0-9)"
+            echo "$name: $size bytes"
+            test "${size:-0}" -gt 1000000
           done
-          echo "== whisper-server --help"
-          "$PREFIX/bin/whisper-server" --help 2>&1 | head -60
       - name: Make the disk image
         run: |
           brew install create-dmg || true

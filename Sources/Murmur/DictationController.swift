@@ -30,6 +30,7 @@ final class DictationController {
         let compose = ComposeController(inserter: inserter)
         compose.onDelivered = { [weak self] text, outcome in
             self?.remember(text, mode: .compose)
+            if outcome == .inserted { self?.noteInsertion(into: NSWorkspace.shared.frontmostApplication?.processIdentifier) }
             if outcome == .copiedOnly { self?.flash("Copied: no text field to paste into. Press ⌘V where you want it.") }
         }
         compose.onSaved = { [weak self] in self?.library.refresh() }
@@ -41,6 +42,7 @@ final class DictationController {
         return compose
     }()
     private let library = LibraryWindowController()
+    private let callWatcher = CallWatcher()
 
     /// Transcriptions in flight. Each waits for the one before it before inserting, so text
     /// lands in the order it was dictated even when a later, shorter clip finishes first.
@@ -112,6 +114,18 @@ final class DictationController {
         hotkeys.onModifiers = { [weak self] modifiers in self?.modifiersChanged(modifiers) }
         downloader.onFinished = { [weak self] option in self?.useWhisperModel(option) }
         updater.onChange = { [weak self] in self?.onChange?() }
+        callWatcher.isMurmurRecording = { [weak self] in
+            guard let self else { return false }
+            return self.machine.isRecording || self.meeting != nil || self.meetingStatus != nil
+        }
+        callWatcher.onAccept = { [weak self] in
+            self?.startMeeting()
+            self?.showLiveMeeting()
+        }
+        callWatcher.onNeverAsk = { [weak self] in
+            self?.editSettings("meeting", "offerWhenCallStarts", json: "false") { !$0.meeting.offerWhenCallStarts }
+            self?.flash("Won't ask again. Turn it back on in Settings → Meetings.")
+        }
         if Permissions.microphone == .notDetermined {
             Permissions.requestMicrophone { _ in
                 Task { @MainActor [weak self] in self?.onChange?() }
@@ -153,6 +167,7 @@ final class DictationController {
         installHotkey()
         scheduleIdleUnload()
         updater.configure(config.updates)
+        callWatcher.setEnabled(config.meeting.offerWhenCallStarts)
         onChange?()
     }
 
@@ -268,6 +283,7 @@ final class DictationController {
             self.meeting = nil
             self.scheduleIdleUnload()
             self.meetingStatus = nil
+            self.library.refresh()
             self.flash("Meeting notes saved")
             self.onChange?()
             if let then {
@@ -328,12 +344,70 @@ final class DictationController {
             if try ConfigFileEdit.setWhisperModel(option.configPath, in: AppPaths.configFile) {
                 reloadConfig()
                 flash("Speech model: \(option.title)")
+                // The Neural Engine was on for the old model: fetch the new model's encoder too.
+                if neuralEngineWanted && neuralEngineAvailable && !neuralEngineOn { setNeuralEngine(true) }
             } else {
                 fail("Downloaded \(option.fileName). Set transcription.whisperCpp.model to \"\(option.configPath)\" in the settings file.")
             }
         } catch {
             fail("Could not update the settings file: \(error)")
         }
+    }
+
+    // MARK: Neural Engine
+
+    let coreML = CoreMLInstaller()
+
+    /// The whisper-server in use is the one shipped inside Murmur (built with Core ML), and the
+    /// model is one whose Core ML encoder can be downloaded.
+    var neuralEngineAvailable: Bool {
+        guard usesLocalWhisper, config.transcription.whisperCpp.keepModelLoaded, currentWhisperModel != nil,
+              let bundled = WhisperCppTranscriber.bundledDirectory,
+              let server = WhisperCppTranscriber.locateServer(configuredCli: config.transcription.whisperCpp.binary) else { return false }
+        return server.hasPrefix(bundled + "/")
+    }
+
+    /// The current model's Core ML encoder is in place, so its encoder runs on the Neural Engine.
+    var neuralEngineOn: Bool { CoreMLEncoder.isInstalled(forModel: whisperModelPath) }
+
+    /// Remembered so switching models keeps it on.
+    private var neuralEngineWanted: Bool {
+        get { UserDefaults.standard.bool(forKey: "neuralEngine") }
+        set { UserDefaults.standard.set(newValue, forKey: "neuralEngine") }
+    }
+
+    func setNeuralEngine(_ on: Bool) {
+        neuralEngineWanted = on
+        let model = whisperModelPath
+        if !on {
+            coreML.cancel()
+            do {
+                try CoreMLInstaller.remove(forModel: model)
+            } catch {
+                fail("Could not remove the Core ML encoder: \(error)")
+            }
+            restartSpeechModel()
+            flash("Neural Engine off: speech runs on the GPU")
+            return
+        }
+        guard let option = currentWhisperModel else { return }
+        coreML.install(option, forModel: model) { [weak self] ok in
+            guard let self else { return }
+            if ok {
+                self.restartSpeechModel()
+                self.flash("Neural Engine on. The first load takes a minute or two.")
+            } else if case let .failed(message) = self.coreML.state {
+                self.fail(message)
+            }
+            self.onChange?()
+        }
+        onChange?()
+    }
+
+    /// whisper-server only looks for the encoder when it loads the model.
+    private func restartSpeechModel() {
+        WhisperServer.stopShared()
+        reloadConfig()
     }
 
     /// The modes only apply to a modifier-only hotkey like fn; a shortcut hotkey is always plain.
@@ -385,7 +459,7 @@ final class DictationController {
     }
 
     /// Changes one setting in the settings file (comments kept) and reloads.
-    private func editSettings(_ section: String, _ key: String, json: String, verify: (Config) -> Bool) {
+    func editSettings(_ section: String, _ key: String, json: String, verify: (Config) -> Bool) {
         do {
             _ = try Config.loadOrCreate(at: AppPaths.configFile)
             if try ConfigFileEdit.set(section, key, json: json, in: AppPaths.configFile, verify: verify) {
@@ -402,6 +476,113 @@ final class DictationController {
         let folder = LibraryStore(config: config.compose).folder
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         NSWorkspace.shared.open(folder)
+    }
+
+    // MARK: Hotkey
+
+    /// The hotkey as written in the settings file, e.g. "fn" or "ctrl+option+space".
+    var hotkeySetting: String { config.hotkey }
+
+    /// While the hotkey picker listens, the old hotkey must not start a dictation.
+    func pauseHotkey() {
+        cancelEverything()
+        hotkeys.stop()
+    }
+
+    func resumeHotkey() {
+        installHotkey()
+        onChange?()
+    }
+
+    func setHotkey(_ name: String) {
+        do {
+            _ = try HotkeySpec.parse(name)
+            _ = try Config.loadOrCreate(at: AppPaths.configFile)
+            if try ConfigFileEdit.setHotkey(name, in: AppPaths.configFile) {
+                reloadConfig()
+                flash("Hotkey: \(hotkeyDescription)")
+            } else {
+                resumeHotkey()
+                fail("Could not change the hotkey in the settings file. Edit \"hotkey\" by hand.")
+            }
+        } catch {
+            resumeHotkey()
+            fail("\(error)")
+        }
+    }
+
+    // MARK: Snippets
+
+    var snippets: [Snippet] { config.snippets }
+
+    func setSnippets(_ snippets: [Snippet]) {
+        let clean = snippets
+            .map { Snippet(say: $0.say.trimmingCharacters(in: .whitespacesAndNewlines), insert: $0.insert) }
+            .filter { !$0.say.isEmpty }
+        do {
+            _ = try Config.loadOrCreate(at: AppPaths.configFile)
+            if try ConfigFileEdit.setSnippets(clean, in: AppPaths.configFile) {
+                reloadConfig()
+            } else {
+                fail("Could not save snippets to the settings file. Edit \"snippets\" by hand.")
+            }
+        } catch {
+            fail("Could not update the settings file: \(error)")
+        }
+    }
+
+    // MARK: Diagnostics
+
+    /// Settings and state for a bug report. Nothing dictated, no API keys.
+    func diagnostics() -> String {
+        var d = Diagnostics()
+        let info = ProcessInfo.processInfo
+        d.add("Murmur", updater.currentVersion)
+        d.add("macOS", info.operatingSystemVersionString)
+        d.add("Mac", [Self.sysctl("hw.model"), Self.sysctl("machdep.cpu.brand_string")].compactMap { $0 }.joined(separator: ", "))
+        d.add("Memory", "\(info.physicalMemory / 1_073_741_824) GB")
+        d.add("Hotkey", "\(config.hotkey) (\(hotkeyIsListening ? "listening" : "NOT listening"))")
+        d.add("Modes", modesDescription)
+        d.add("Transcription", transcriberName)
+        if usesLocalWhisper {
+            d.add("Neural Engine", neuralEngineOn ? "on" : (neuralEngineAvailable ? "off" : "not available"))
+            let binary = WhisperCppTranscriber.locateServer(configuredCli: config.transcription.whisperCpp.binary)
+                ?? WhisperCppTranscriber.locateBinary(configured: config.transcription.whisperCpp.binary)
+            d.add("whisper.cpp", binary ?? "not found")
+            d.add("Speech model", whisperModelPath + (whisperModelInstalled ? "" : " (missing)"))
+        }
+        d.add("Cleanup", cleanerName)
+        d.add("Compose", composerName)
+        d.add("Summaries", summaryName)
+        d.add("Local LLM", localLLM.map { "\($0.server), \($0.models.count) models" } ?? "none found")
+        d.add("API keys", [HostedAPI.groq, .openAI, .anthropic].filter { $0.key(in: env) != nil }.map(\.name).joined(separator: ", "))
+        d.add("Microphone", (AudioDevices.current()?.name ?? "none") + (microphoneUID == nil ? " (system default)" : " (picked)"))
+        d.add("Permissions", [
+            "microphone \(Permissions.microphone == .authorized ? "yes" : "no")",
+            "accessibility \(Permissions.accessibility ? "yes" : "no")",
+            "input monitoring \(Permissions.inputMonitoring ? "yes" : "no")",
+        ].joined(separator: ", "))
+        d.add("Insertion", config.insertion.method.rawValue)
+        d.add("Pill", config.feedback.pill ? pillPosition.title : "off")
+        d.add("Snippets", "\(config.snippets.count)")
+        d.add("Last dictation", lastTiming)
+        d.add("Problems", problems.joined(separator: " | "))
+        d.add("Last issue", lastFailure)
+        return d.text
+    }
+
+    func copyDiagnostics() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(diagnostics(), forType: .string)
+        flash("Diagnostics copied")
+    }
+
+    private static func sysctl(_ name: String) -> String? {
+        var size = 0
+        guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        var buffer = [CChar](repeating: 0, count: size)
+        guard sysctlbyname(name, &buffer, &size, nil, 0) == 0 else { return nil }
+        return String(cString: buffer)
     }
 
     // MARK: Pill
@@ -472,8 +653,19 @@ final class DictationController {
         showHowTo()
     }
 
-    func showLibrary() {
-        library.show(store: LibraryStore(config: config.compose))
+    func showLibrary(section: LibrarySection? = nil) {
+        library.show(store: LibraryStore(config: config.compose), meetings: MeetingStore(config: config.meeting), section: section)
+    }
+
+    private(set) lazy var settingsWindow = SettingsWindowController(controller: self)
+    private lazy var liveMeeting = MeetingLiveWindowController()
+
+    func showSettings(tab: SettingsTab? = nil) {
+        settingsWindow.show(tab: tab)
+    }
+
+    func showLiveMeeting() {
+        liveMeeting.show(controller: self)
     }
 
     /// After an update, System Settings can show Murmur switched on while the grant belongs to the
@@ -719,6 +911,7 @@ final class DictationController {
         let insertion = config.insertion
         let limitNote = reason == .timeLimit ? "Hands-free stopped at the time limit" : nil
         let previous = lastJob
+        let targetPID = target?.processIdentifier
 
         let id = UUID()
         processingStep = "Transcribing"
@@ -740,12 +933,23 @@ final class DictationController {
                 self.lastTiming = Self.describeTiming(result, cleaner: pipeline.cleaner?.name)
                 // Each cleanup request resets Ollama's timer to its 5-minute default; set ours again.
                 if result.cleanupSeconds != nil { self.keepCleanupModelLoaded() }
+                switch result.command {
+                case .undo?:
+                    self.finishJob(id, message: self.undoLastDictation())
+                    return
+                case .scratched?:
+                    self.finishJob(id, message: "Scratched")
+                    return
+                case .snippet?, nil:
+                    break
+                }
                 if result.text.isEmpty {
                     self.finishJob(id, message: "No speech heard")
                     return
                 }
                 let outcome = await self.inserter.insert(result.text, config: insertion)
                 self.remember(result.text, mode: mode)
+                if outcome == .inserted { self.noteInsertion(into: targetPID) }
                 if outcome == .copiedOnly {
                     self.finishJob(id, message: "Copied: no text field to paste into. Press ⌘V where you want it.")
                 } else {
@@ -772,6 +976,35 @@ final class DictationController {
         }
         if let message { flash(message) } else { refreshPill() }
         onChange?()
+    }
+
+    // MARK: Undo
+
+    /// The app the last dictation went into, and when; "scratch that" undoes it only there, and not long after.
+    private var lastInsertion: (pid: pid_t?, date: Date)?
+
+    private func noteInsertion(into pid: pid_t?) {
+        lastInsertion = (pid, Date())
+        onChange?()
+    }
+
+    var canUndoLastDictation: Bool {
+        guard let last = lastInsertion else { return false }
+        return Date().timeIntervalSince(last.date) < 120
+    }
+
+    /// Sends ⌘Z to the app the last dictation was pasted into. Returns what to tell the user.
+    @discardableResult
+    func undoLastDictation() -> String {
+        guard let last = lastInsertion, Date().timeIntervalSince(last.date) < 120 else {
+            return "Nothing to undo"
+        }
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        guard last.pid == nil || last.pid == front else { return "Switch back to where you dictated to undo" }
+        lastInsertion = nil
+        inserter.postUndo()
+        onChange?()
+        return "Undone"
     }
 
     // MARK: Recent

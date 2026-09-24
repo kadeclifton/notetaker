@@ -3,19 +3,22 @@ import AppKit
 import SwiftUI
 import MurmurCore
 
-/// Everything Compose has written, with what was said, searchable and editable.
+/// Everything Compose has written, with what was said, searchable and editable; and every
+/// meeting's notes, searchable and read-only.
 @MainActor
 final class LibraryWindowController {
     let model = LibraryModel()
     private var window: NSWindow?
 
-    func show(store: LibraryStore) {
+    func show(store: LibraryStore, meetings: MeetingStore, section: LibrarySection? = nil) {
         model.store = store
+        model.meetingStore = meetings
+        if let section { model.section = section }
         model.reload()
         if window == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 560),
                                   styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
-            window.title = "Compose Library"
+            window.title = "Library"
             window.contentView = NSHostingView(rootView: LibraryView(model: model))
             window.isReleasedWhenClosed = false
             window.setFrameAutosaveName("MurmurLibrary")
@@ -34,12 +37,28 @@ final class LibraryWindowController {
     }
 }
 
+enum LibrarySection: String, CaseIterable {
+    case compose = "Compose"
+    case meetings = "Meetings"
+}
+
 @MainActor
 final class LibraryModel: ObservableObject {
     @Published private(set) var entries: [LibraryEntry] = []
     @Published var selection: UUID?
     @Published var query = ""
+    @Published var section: LibrarySection = .compose
+    @Published private(set) var meetings: [MeetingFile] = []
+    @Published var meetingSelection: URL?
     var store: LibraryStore?
+    var meetingStore: MeetingStore?
+
+    var filteredMeetings: [MeetingFile] {
+        let words = query.split(separator: " ").map(String.init)
+        return meetings.filter { meeting in words.allSatisfy { meeting.matches($0) } }
+    }
+
+    var selectedMeeting: MeetingFile? { meetings.first { $0.url == meetingSelection } }
     /// An edit not yet written to disk.
     private var dirty: LibraryEntry?
     private var pendingSave: Task<Void, Never>?
@@ -59,6 +78,8 @@ final class LibraryModel: ObservableObject {
         flush()
         entries = store?.list() ?? []
         if selected == nil { selection = entries.first?.id }
+        meetings = meetingStore?.list() ?? []
+        if selectedMeeting == nil { meetingSelection = meetings.first?.url }
     }
 
     /// Edits are saved shortly after typing stops (or at once when another piece is edited).
@@ -102,8 +123,13 @@ final class LibraryModel: ObservableObject {
         if let url = entry.fileURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
     }
 
+    func copy(_ meeting: MeetingFile) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(meeting.markdown, forType: .string)
+    }
+
     func openFolder() {
-        guard let folder = store?.folder else { return }
+        guard let folder = section == .meetings ? meetingStore?.folder : store?.folder else { return }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         NSWorkspace.shared.open(folder)
     }
@@ -115,21 +141,51 @@ struct LibraryView: View {
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
+                Picker("", selection: $model.section) {
+                    ForEach(LibrarySection.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding([.horizontal, .top], 8)
                 TextField("Search", text: $model.query)
                     .textFieldStyle(.roundedBorder)
                     .padding(8)
-                List(model.filtered, selection: $model.selection) { entry in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.title).lineLimit(1)
-                        Text(Self.subtitle(entry)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                if model.section == .compose {
+                    List(model.filtered, selection: $model.selection) { entry in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.title).lineLimit(1)
+                            Text(Self.subtitle(entry)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        .padding(.vertical, 2)
+                        .tag(entry.id)
                     }
-                    .padding(.vertical, 2)
-                    .tag(entry.id)
+                } else {
+                    List(model.filteredMeetings, selection: $model.meetingSelection) { meeting in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(meeting.date.formatted(date: .abbreviated, time: .shortened)).lineLimit(1)
+                            Text(Self.preview(meeting)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        .padding(.vertical, 2)
+                        .tag(meeting.url)
+                    }
                 }
             }
             .navigationSplitViewColumnWidth(min: 220, ideal: 280)
         } detail: {
-            if let entry = model.selected {
+            if model.section == .meetings {
+                if let meeting = model.selectedMeeting {
+                    MeetingDetail(meeting: meeting, model: model).id(meeting.url)
+                } else {
+                    VStack(spacing: 8) {
+                        Image(systemName: "person.2.wave.2").font(.largeTitle).foregroundStyle(.purple)
+                        Text(model.meetings.isEmpty ? "No meeting notes yet" : "Pick a meeting").font(.headline)
+                        Text("Start Meeting Notes from the menu bar. Each meeting's transcript and summary is kept here.")
+                            .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 320)
+                        Button("Open Meetings Folder") { model.openFolder() }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else if let entry = model.selected {
                 LibraryDetail(entry: entry, model: model).id(entry.id)
             } else {
                 VStack(spacing: 8) {
@@ -143,6 +199,14 @@ struct LibraryView: View {
             }
         }
         .frame(minWidth: 640, minHeight: 400)
+    }
+
+    /// The summary's first line, or that it is still being recorded.
+    static func preview(_ meeting: MeetingFile) -> String {
+        let line = meeting.summary.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "#-*• ")) }
+            .first { !$0.isEmpty }
+        return line ?? "No summary"
     }
 
     static func subtitle(_ entry: LibraryEntry) -> String {
@@ -202,6 +266,39 @@ private struct LibraryDetail: View {
         } message: {
             Text("Its file is removed from the library folder.")
         }
+    }
+}
+private struct MeetingDetail: View {
+    let meeting: MeetingFile
+    @ObservedObject var model: LibraryModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(meeting.title).font(.title3.weight(.semibold)).lineLimit(1)
+                    Text(meeting.url.lastPathComponent).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Copy") { model.copy(meeting) }
+                Button("Open") { NSWorkspace.shared.open(meeting.url) }
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([meeting.url]) }
+            }
+            ScrollView {
+                Text(Self.rendered(meeting.markdown))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+            }
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
+        }
+        .padding(16)
+    }
+
+    /// Bold, italics and links rendered; headings and lists stay as written.
+    static func rendered(_ markdown: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        return (try? AttributedString(markdown: markdown, options: options)) ?? AttributedString(markdown)
     }
 }
 #endif

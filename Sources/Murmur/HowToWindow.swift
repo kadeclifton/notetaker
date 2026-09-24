@@ -44,19 +44,21 @@ private struct HowToView: View {
             section("More") {
                 row("Double-tap \(hotkey)", "Hands-free: keep talking with nothing held. Tap \(hotkey) again to finish.")
                 row("Esc", "Cancel a recording, or stop one that's still being transcribed.")
+                row("\"Scratch that\"", "Say it on its own to undo the last dictation; end a sentence with it to drop that one.")
+                row("Snippets", "Say a phrase like \"my email\" and saved text goes in instead. Set them in Settings.")
                 if hasModes {
                     row("\"…as bullet points\"", "Tell Compose the form you want: an email, a message, bullets, a prompt.")
                 }
             }
 
             section("Where things are") {
-                row("Menu bar wave", "Recent dictations to copy again, the Compose Library, Meeting Notes and settings.")
-                row("Vocabulary", "Add names Whisper misspells, from the menu.")
+                row("Menu bar wave", "Recent dictations, the Library (Compose pieces and meetings), Meeting Notes, Settings.")
+                row("Settings… ⌘,", "Hotkey, microphone, speech model, Neural Engine, vocabulary, snippets, meetings.")
             }
 
             Spacer(minLength: 0)
             HStack {
-                Text("Open this again from the menu: Settings → How to Use Murmur.")
+                Text("Open this again from the menu: More → How to Use Murmur.")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Got It", action: close).keyboardShortcut(.defaultAction)

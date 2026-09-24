@@ -83,7 +83,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
         addMeetingItems(to: menu)
-        menu.addItem(item("Compose Library…", action: #selector(showLibrary), key: "l"))
+        menu.addItem(item("Library…", action: #selector(showLibrary), key: "l"))
         menu.addItem(submenu("Recent", recentMenu()))
 
         menu.addItem(.separator())
@@ -91,7 +91,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(submenu("Microphone", microphoneMenu()))
         menu.addItem(submenu("Vocabulary", vocabularyMenu()))
         menu.addItem(submenu("Cleanup & Compose", writingMenu()))
-        menu.addItem(submenu("Settings", settingsMenu()))
+        menu.addItem(submenu("More", settingsMenu()))
+        menu.addItem(item("Settings…", action: #selector(showSettingsWindow), key: ","))
 
         menu.addItem(.separator())
         menu.addItem(item("Quit Murmur", action: #selector(quit), key: "q"))
@@ -129,6 +130,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             menu.addItem(info("Meeting Notes: \(status)"))
         } else if let meeting = controller.meeting {
             menu.addItem(item("Stop Meeting Notes · \(MeetingTranscript.clock(meeting.elapsed))", action: #selector(stopMeeting), key: "m"))
+            menu.addItem(item("Live Transcript…", action: #selector(showLiveMeeting)))
             if let warning = meeting.warnings.last { menu.addItem(info("⚠️ " + warning)) }
         } else {
             menu.addItem(item("Start Meeting Notes", action: #selector(startMeeting), key: "m"))
@@ -163,6 +165,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private func recentMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
+        let undo = item("Undo Last Dictation", action: #selector(undoLastDictation))
+        undo.isEnabled = controller.canUndoLastDictation
+        undo.toolTip = "Sends ⌘Z to the app it went into. Or just say \u{201C}scratch that\u{201D}."
+        menu.addItem(undo)
+        menu.addItem(.separator())
         let items = controller.recent.items
         if items.isEmpty {
             menu.addItem(info("Nothing yet. Your last 10 dictations appear here."))
@@ -315,10 +322,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(item("Open Meeting Notes Folder", action: #selector(openMeetings)))
         menu.addItem(item("Open Compose Library Folder", action: #selector(openLibraryFolder)))
-        menu.addItem(item("Open Settings File", action: #selector(openSettings), key: ","))
+        menu.addItem(item("Open Settings File", action: #selector(openSettings)))
         menu.addItem(item("Open API Keys (.env)", action: #selector(openEnv)))
         menu.addItem(item("Reload Settings", action: #selector(reload), key: "r"))
         menu.addItem(item("Check for Updates…", action: #selector(checkForUpdates)))
+        menu.addItem(item("Copy Diagnostics", action: #selector(copyDiagnostics)))
         menu.addItem(info(updateStatus()))
         menu.addItem(.separator())
         menu.addItem(info("Transcription: \(controller.transcriberName)"))
@@ -506,6 +514,23 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     @objc private func showHowTo() {
         controller.showHowTo()
+    }
+
+    @objc private func showSettingsWindow() {
+        controller.showSettings()
+    }
+
+    @objc private func showLiveMeeting() {
+        controller.showLiveMeeting()
+    }
+
+    @objc private func undoLastDictation() {
+        let message = controller.undoLastDictation()
+        if message != "Undone" { showAlert(message + ".") }
+    }
+
+    @objc private func copyDiagnostics() {
+        controller.copyDiagnostics()
     }
 
     @objc private func showLibrary() {

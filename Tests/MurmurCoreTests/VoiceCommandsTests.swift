@@ -139,3 +139,83 @@ final class DiagnosticsTests: XCTestCase {
         """)
     }
 }
+
+final class PipelineCommandTests: XCTestCase {
+    private func run(_ heard: String, commands: Bool = true) async throws -> PipelineResult {
+        let cleaner = FakeCleaner { _ in "CLEANED" }
+        let pipeline = DictationPipeline(transcriber: FakeTranscriber(text: heard), cleaner: cleaner, language: nil, prompt: nil,
+                                         snippets: [Snippet(say: "sign off", insert: "Best,\nKade")], voiceCommands: commands)
+        return try await pipeline.run(samples: [Float](repeating: 0.1, count: 16000), context: CleanupContext())
+    }
+
+    func testSnippetSkipsCleanup() async throws {
+        let result = try await run("Sign off.")
+        XCTAssertEqual(result.text, "Best,\nKade")
+        XCTAssertEqual(result.command, .snippet)
+        XCTAssertNil(result.cleanupSeconds)
+    }
+
+    func testScratchAndUndo() async throws {
+        let scratched = try await run("Meet at three, scratch that.")
+        XCTAssertEqual(scratched.command, .scratched)
+        XCTAssertEqual(scratched.text, "")
+        let undo = try await run("Scratch that.")
+        XCTAssertEqual(undo.command, .undo)
+    }
+
+    func testComposeIgnoresCommands() async throws {
+        let result = try await run("Scratch that.", commands: false)
+        XCTAssertNil(result.command)
+        XCTAssertEqual(result.text, "CLEANED")
+    }
+
+    func testConfigTurnsCommandsOffForCompose() throws {
+        var config = Config()
+        config.transcription.engine = .groq
+        config.snippets = [Snippet(say: "a", insert: "b")]
+        let env = ["GROQ_API_KEY": "k"]
+        XCTAssertTrue(try DictationPipeline(config: config, env: env, mode: .dictate).voiceCommands)
+        XCTAssertFalse(try DictationPipeline(config: config, env: env, mode: .compose).voiceCommands)
+        XCTAssertEqual(try DictationPipeline(config: config, env: env).snippets, config.snippets)
+    }
+}
+
+final class CoreMLTests: XCTestCase {
+    func testEncoderPathFollowsWhisperCpp() {
+        XCTAssertEqual(CoreMLEncoder.path(forModel: "/m/ggml-small.en.bin"), "/m/ggml-small.en-encoder.mlmodelc")
+        XCTAssertEqual(CoreMLEncoder.path(forModel: "/m/ggml-large-v3-turbo-q5_0.bin"), "/m/ggml-large-v3-turbo-encoder.mlmodelc")
+        XCTAssertEqual(CoreMLEncoder.path(forModel: "/m.d/model"), "/m.d/model-encoder.mlmodelc")
+        XCTAssertEqual(WhisperModelOption.turbo.coreMLURL.lastPathComponent, "ggml-large-v3-turbo-encoder.mlmodelc.zip")
+        XCTAssertEqual(WhisperModelOption.small.coreMLURL.lastPathComponent, "ggml-small.en-encoder.mlmodelc.zip")
+    }
+
+    func testInstalledOnlyAsAFolder() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let model = dir.appendingPathComponent("ggml-base.en.bin").path
+        XCTAssertFalse(CoreMLEncoder.isInstalled(forModel: model))
+        try FileManager.default.createDirectory(atPath: CoreMLEncoder.path(forModel: model), withIntermediateDirectories: true)
+        XCTAssertTrue(CoreMLEncoder.isInstalled(forModel: model))
+    }
+
+    func testBundledWhisperWinsOverHomebrew() throws {
+        let bundled = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let path = bundled.appendingPathComponent("path")
+        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bundled) }
+        for dir in [bundled, path] {
+            for name in ["whisper-server", "whisper-cli"] {
+                let file = dir.appendingPathComponent(name).path
+                FileManager.default.createFile(atPath: file, contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755])
+            }
+        }
+        let env = ["PATH": path.path]
+        XCTAssertEqual(WhisperCppTranscriber.locateServer(configuredCli: "", environment: env, bundled: bundled.path),
+                       bundled.appendingPathComponent("whisper-server").path)
+        XCTAssertEqual(WhisperCppTranscriber.locateBinary(configured: "", environment: env, bundled: bundled.path),
+                       bundled.appendingPathComponent("whisper-cli").path)
+        XCTAssertEqual(WhisperCppTranscriber.locateServer(configuredCli: "", environment: env, bundled: nil),
+                       path.appendingPathComponent("whisper-server").path)
+    }
+}

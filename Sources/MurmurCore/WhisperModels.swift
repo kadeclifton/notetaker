@@ -31,6 +31,42 @@ public struct WhisperModelOption: Sendable, Hashable, Identifiable {
     public func localURL(in directory: URL = AppPaths.directory) -> URL {
         directory.appendingPathComponent("models").appendingPathComponent(fileName)
     }
+
+    /// The Core ML encoder for this model, zipped, from the same place as the model.
+    public var coreMLURL: URL {
+        let name = (CoreMLEncoder.path(forModel: fileName) as NSString).lastPathComponent
+        return URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/\(name).zip")!
+    }
+
+    /// Roughly how big that download is.
+    public var coreMLMegabytes: Int {
+        switch id {
+        case "base.en": return 40
+        case "small.en": return 165
+        default: return 1200
+        }
+    }
+}
+
+/// whisper.cpp built with Core ML runs the encoder on the Neural Engine when it finds
+/// `<model>-encoder.mlmodelc` next to the model, and on the GPU when it does not.
+public enum CoreMLEncoder {
+    /// whisper.cpp's rule: the model path without its extension and without a "-q5_0" style
+    /// quantization suffix, plus "-encoder.mlmodelc".
+    public static func path(forModel model: String) -> String {
+        var base = model
+        if let dot = base.lastIndex(of: "."), !base[dot...].contains("/") { base = String(base[..<dot]) }
+        if let dash = base.lastIndex(of: "-") {
+            let suffix = Array(base[dash...])
+            if suffix.count == 5, suffix[1] == "q", suffix[3] == "_" { base = String(base[..<dash]) }
+        }
+        return base + "-encoder.mlmodelc"
+    }
+
+    public static func isInstalled(forModel model: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path(forModel: model), isDirectory: &isDirectory) && isDirectory.boolValue
+    }
 }
 
 /// Small, comment-preserving edits to the settings file, for choices made in the menu.

@@ -79,8 +79,17 @@ jobs:
           fi
           echo "Signing as $IDENTITY"
           echo "CODESIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+      - name: Cache whisper.cpp
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/whisper/bin
+            build/whisper/VERSION
+          key: whisper-cpp-${{ hashFiles('scripts/build-whisper.sh') }}
+      - name: Build whisper.cpp with Core ML (shipped inside the app)
+        run: scripts/build-whisper.sh
       - name: Build the app
-        run: MURMUR_VERSION="$GITHUB_REF_NAME" MURMUR_BUILD="$GITHUB_RUN_NUMBER" scripts/build-app.sh
+        run: MURMUR_REQUIRE_WHISPER=1 MURMUR_VERSION="$GITHUB_REF_NAME" MURMUR_BUILD="$GITHUB_RUN_NUMBER" scripts/build-app.sh
       - name: Notarize the app
         if: env.SIGNED == 'true'
         env:

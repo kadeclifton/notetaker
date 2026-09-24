@@ -58,6 +58,18 @@ enum AudioDevices {
         return systemDefault()
     }
 
+    /// Some app (possibly Murmur) is recording from a microphone right now.
+    static func anyInputInUse() -> Bool {
+        inputs().contains { device in
+            var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
+                                                     mScope: kAudioObjectPropertyScopeGlobal,
+                                                     mElement: kAudioObjectPropertyElementMain)
+            var running: UInt32 = 0
+            var size = UInt32(MemoryLayout<UInt32>.size)
+            return AudioObjectGetPropertyData(device.id, &address, 0, nil, &size, &running) == noErr && running != 0
+        }
+    }
+
     private static func inputChannels(of id: AudioDeviceID) -> Int {
         var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreamConfiguration,
                                                  mScope: kAudioDevicePropertyScopeInput,

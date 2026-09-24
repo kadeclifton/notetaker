@@ -7,15 +7,18 @@ the text appears at your cursor in whatever app has focus.
   possible. Add `⌃` (fn⌃) to clean it up: filler words out, punctuation fixed. Add `⌃⌥` (fn⌃⌥) to
   **Compose**: ramble it out, and a bigger model turns it into finished writing (a message, an email,
   bullets, a doc, an AI prompt) in a preview you can insert, copy, restyle or edit.
-- **Compose Library.** Everything Compose writes is kept with what you said, as Markdown files you
-  can browse, search and edit from the menu bar.
+- **Library.** Everything Compose writes is kept with what you said, and every meeting's notes,
+  as Markdown files you can browse and search from the menu bar.
+- **Snippets and "scratch that".** Say "my address" and saved text goes in. Say "scratch that" to
+  undo the last dictation.
 - **Hands-free.** Double-tap the hotkey and it keeps recording with nothing held. Tap once more to finish.
   It stops by itself after 5 minutes, so a forgotten session can't record all afternoon.
 - **Esc cancels.** During recording it drops the audio. During transcription it kills the job
   (the whisper.cpp process or the HTTP request). Esc is only observed, never swallowed, so it still
   reaches the app you are typing in.
-- **Local or cloud speech-to-text.** whisper.cpp on your Mac (small or medium model, offline), or the
-  Groq / OpenAI Whisper API when a key is in `.env`. One config flag picks.
+- **Local or cloud speech-to-text.** whisper.cpp on your Mac (offline, shipped inside the app, built
+  with Metal and Core ML so it can use the Neural Engine), or the Groq / OpenAI Whisper API when a
+  key is in `.env`. One config flag picks.
 - **LLM cleanup.** A short prompt removes filler words, fixes punctuation, and keeps casing the way
   you would type it. Groq, OpenAI, Anthropic, or any OpenAI-compatible local server (Ollama, LM Studio).
   If cleanup fails or no key is set, the raw transcript is inserted, so nothing is lost.
@@ -23,11 +26,12 @@ the text appears at your cursor in whatever app has focus.
   the clipboard so you can paste it again; or set a flag to restore your previous clipboard.
 - **A tiny pill** just under the menu bar shows when it's live, which mode you're in, the input
   level, and a countdown near the hands-free limit. Drag it anywhere (it remembers), or pick a spot
-  in Settings → Pill Position.
+  in Settings.
 - **Meeting Notes.** Start it from the menu bar before a call. Murmur records your mic ("Me") and the
   call's audio ("Others"), transcribes as it goes, and when you stop writes a Markdown file with a
   summary, decisions, action items and the full transcript. Works with Zoom, Meet, Teams, FaceTime,
-  anything that plays through your Mac.
+  anything that plays through your Mac. When a call starts, Murmur offers to take notes, and a live
+  transcript window follows along.
 - **Local models, no keys needed.** Murmur finds Ollama or LM Studio running on your Mac and uses it for
   cleanup, Compose and meeting summaries, sized to what your Mac can run.
 - **Menu bar** toggle for on/off, launch at login, and shortcuts to the settings file and `.env`.
@@ -41,15 +45,17 @@ no Xcode needed, a setup window walks you through the rest.
 
 - macOS 14 (Sonoma) or later
 - Xcode or the Xcode Command Line Tools (Swift 5.9+) to build
-- For local transcription: `brew install whisper-cpp` and a model (below)
+- For local transcription: a model (below). Release builds include whisper.cpp; to build it into
+  your own build, `brew install cmake` and run `scripts/build-whisper.sh` (or `brew install whisper-cpp`
+  and Murmur uses Homebrew's)
 
 ## Install
 
 ```sh
 git clone https://github.com/kadeclifton/notetaker.git murmur && cd murmur
 
-# Local speech-to-text (skip if you'll only use Groq/OpenAI)
-brew install whisper-cpp
+# Local speech-to-text (skip if you'll only use Groq/OpenAI): whisper.cpp with Core ML, built into the app
+brew install cmake && scripts/build-whisper.sh
 scripts/download-model.sh small.en      # 466 MB. Or: medium.en (1.5 GB, more accurate)
 
 # One-time: a signing certificate so permissions survive rebuilds (asks for your password)
@@ -61,8 +67,8 @@ scripts/build-app.sh --install
 
 Murmur appears in the menu bar as its wave: the loudness of the word "murmur", in 13 bars. There is no Dock icon.
 
-Optional: add API keys. Choose **Settings → Open API Keys (.env)** from the menu (it
-creates `~/.config/murmur/.env`), fill in what you have, then **Settings → Reload Settings**:
+Optional: add API keys. Choose **More → Open API Keys (.env)** from the menu (it
+creates `~/.config/murmur/.env`), fill in what you have, then **More → Reload Settings**:
 
 ```sh
 GROQ_API_KEY=gsk_...        # fast Whisper + cleanup
@@ -123,9 +129,10 @@ Click the wave in the menu bar:
 
 - **Status line**: "Ready", or **⚠️ Finish Setup…** when something needs fixing (click it).
 - **Dictation** (⌘E): on/off.
-- **Start Meeting Notes** (⌘M).
-- **Compose Library…** (⌘L): everything Compose has written.
-- **Recent**: the last 10 dictations and composes, click to copy again (kept in memory only).
+- **Start Meeting Notes** (⌘M); while recording, **Live Transcript…**.
+- **Library…** (⌘L): everything Compose has written, and every meeting's notes.
+- **Recent**: **Undo Last Dictation**, then the last 10 dictations and composes, click to copy again
+  (kept in memory only).
 - **Vocabulary**: add or remove the names and jargon passed to Whisper (`transcription.vocabulary`).
 - **Microphone**: record from a specific mic instead of the system default (useful in clamshell mode
   with a webcam or display mic). A silent recording names the mic it listened to. Quiet mics are
@@ -134,8 +141,10 @@ Click the wave in the menu bar:
 - **Cleanup & Compose**: whether plain fn cleans up too, which models clean up and compose, how long
   Ollama keeps the cleanup model loaded, and **Compose Model** (Automatic picks the best one that fits
   your Mac; pick another on slower hardware).
-- **Settings**: setup window, launch at login, the meeting notes and library folders, the settings and API key files,
-  and **Check for Updates…**.
+- **More**: setup window, how-to, pill position, launch at login, the meeting notes and library
+  folders, the settings and API key files, **Check for Updates…** and **Copy Diagnostics**.
+- **Settings…** (⌘,): hotkey picker, microphone, speech model and Neural Engine, vocabulary,
+  snippets, meeting options, version and diagnostics.
 - **⬆︎ Update to v…** appears at the top when a newer release is published.
 
 ## Using it
@@ -202,11 +211,19 @@ reasoning regardless) when another model fits, since they spend 20 to 40 seconds
 Silent recordings are dropped before transcription, since Whisper tends to invent text
 ("Thanks for watching!") for silence.
 
-**Speed.** With the local model, Murmur keeps `whisper-server` (part of `brew install whisper-cpp`)
-running in the background with the model loaded, so a dictation only waits for the transcription
+**Speed.** With the local model, Murmur keeps `whisper-server` (shipped inside Murmur.app, or
+Homebrew's) running in the background with the model loaded, so a dictation only waits for the transcription
 itself, not a model load. The very first transcription after installing is still slow: macOS compiles
 Whisper's GPU code once. Set `whisperCpp.keepModelLoaded` to `false` to go back to running
 `whisper-cli` each time (uses less memory, slower).
+
+**Neural Engine.** The whisper.cpp inside Murmur is built with Core ML. Settings… → Speech → **Use
+the Neural Engine** downloads the model's Core ML encoder (`ggml-<model>-encoder.mlmodelc`, next to
+the model); whisper.cpp then runs the encoder on the Neural Engine and the rest on the GPU. It mostly
+frees the GPU and saves battery; speed is similar to Metal on most Macs. macOS prepares the encoder
+the first time it loads, which can take a few minutes for the large model. Turn it off to delete the
+encoder and go back to the GPU. Homebrew's whisper.cpp is built without Core ML, so the option only
+appears when Murmur uses its own.
 
 ## Meeting Notes
 
@@ -451,7 +468,8 @@ Logs go to the unified log: `log stream --predicate 'process == "Murmur"'`.
   the 🌐 key is set to "Do Nothing". Try `"hotkey": "rightOption"` to rule out the fn key.
 - **The pill shows but no text appears.** Grant Accessibility and restart Murmur. The transcript is
   also on the clipboard; press Cmd-V yourself.
-- **"whisper-cli not found".** `brew install whisper-cpp`, or set `transcription.whisperCpp.binary`.
+- **"whisper-cli not found".** A build without bundled whisper.cpp: run `scripts/build-whisper.sh`
+  and rebuild, `brew install whisper-cpp`, or set `transcription.whisperCpp.binary`.
 - **"Whisper model not found".** `scripts/download-model.sh small.en`.
 - **Nothing is inserted into a password field.** macOS blocks synthetic input into secure fields, by design.
 - **Meeting notes only have "Me".** Grant Screen & System Audio Recording, then quit and reopen Murmur.

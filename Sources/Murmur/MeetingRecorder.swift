@@ -28,6 +28,10 @@ final class MeetingRecorder {
     private var queueTail: Task<Void, Never>?
     private var pendingPieces = 0
     private(set) var warnings: [String] = []
+    /// What has been transcribed so far, for the live window.
+    var liveTranscript: MeetingTranscript { transcript }
+    /// Pieces recorded but not transcribed yet.
+    var piecesPending: Int { pendingPieces }
 
     /// Called every couple of seconds with fresh state for the menu bar.
     var onChange: (() -> Void)?
