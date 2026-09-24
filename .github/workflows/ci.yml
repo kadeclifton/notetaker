@@ -35,6 +35,24 @@ jobs:
           xcrun assetutil --info build/Murmur.app/Contents/Resources/Assets.car | grep -i -E 'appearance|AppIcon' | sort -u | head -20
           lipo -archs build/Murmur.app/Contents/MacOS/Murmur | grep -qx arm64
           plutil -extract CFBundleShortVersionString raw build/Murmur.app/Contents/Info.plist | grep -qx 0.0.0-ci
+      - name: Does Homebrew's whisper.cpp use Core ML? (information only)
+        continue-on-error: true
+        run: |
+          brew install whisper-cpp >/dev/null 2>&1 || true
+          PREFIX="$(brew --prefix whisper-cpp)"
+          brew info whisper-cpp | head -5
+          ls "$PREFIX/bin" "$PREFIX/lib" 2>/dev/null | head -40
+          for f in "$PREFIX"/lib/*.dylib "$PREFIX/bin/whisper-server" "$PREFIX/bin/whisper-cli"; do
+            [ -e "$f" ] || continue
+            echo "== $f"
+            otool -L "$f" | grep -iE "coreml|metal|accelerate|libwhisper|libggml" || true
+          done
+          echo "== Core ML strings"
+          for f in "$PREFIX"/lib/*.dylib "$PREFIX/bin/whisper-server"; do
+            [ -e "$f" ] && strings "$f" | grep -iE "coreml|mlmodelc" | sort -u | head -5
+          done
+          echo "== whisper-server --help"
+          "$PREFIX/bin/whisper-server" --help 2>&1 | head -60
       - name: Make the disk image
         run: |
           brew install create-dmg || true
