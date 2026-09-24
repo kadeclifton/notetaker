@@ -30,6 +30,17 @@ public enum VoiceCommands {
         return snippets.first { !normalize($0.say).isEmpty && normalize($0.say) == said }?.insert
     }
 
+    /// Why a snippet cannot be saved as written, or nil when it is fine.
+    public static func problem(with snippet: Snippet) -> String? {
+        let said = normalize(snippet.say)
+        if said.isEmpty { return "Type the phrase to say." }
+        if snippet.insert.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Type the text to insert." }
+        if undoPhrases.contains(said) || said == "new line" || said == "new paragraph" {
+            return "\u{201C}\(snippet.say)\u{201D} is already a Murmur command; pick another phrase."
+        }
+        return nil
+    }
+
     static let undoPhrases: Set<String> = ["scratch that", "undo that", "delete that", "scratch that please", "undo"]
 
     /// The whole utterance is "scratch that" (or "undo that"): take back the last dictation.

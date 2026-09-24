@@ -90,3 +90,47 @@ final class IncrementalTests: XCTestCase {
         XCTAssertNotNil(cleaned.cleanupSeconds)
     }
 }
+
+final class LaunchReadinessTests: XCTestCase {
+    func testPlainHTTPOnlyStaysLocal() {
+        let allowed = ["https://api.example.com/v1", "http://localhost:11434/v1", "http://127.0.0.1:1234/v1",
+                       "http://192.168.1.20:8080/v1", "http://10.0.0.5/v1", "http://172.20.1.1/v1", "http://studio.local:1234/v1",
+                       "http://[::1]:8080/v1"]
+        for url in allowed { XCTAssertTrue(NetworkSafety.isAllowed(URL(string: url)!), url) }
+        let refused = ["http://api.example.com/v1", "http://8.8.8.8/v1", "http://172.32.0.1/v1", "ftp://localhost/x"]
+        for url in refused { XCTAssertFalse(NetworkSafety.isAllowed(URL(string: url)!), url) }
+    }
+
+    func testCustomCleanupServerOverPlainHTTPIsRefused() {
+        var config = Config()
+        config.cleanup.provider = .custom
+        config.cleanup.baseURL = "http://my-server.example.com/v1"
+        XCTAssertThrowsError(try config.makeCleaner(env: [:])) { error in
+            XCTAssertEqual(error as? SetupError, .insecureBaseURL("http://my-server.example.com/v1"))
+        }
+        config.cleanup.baseURL = "http://localhost:8080/v1"
+        XCTAssertNoThrow(try config.makeCleaner(env: [:]))
+    }
+
+    func testUpdatesOnlyComeFromGitHubOverHTTPS() {
+        XCTAssertTrue(NetworkSafety.isGitHubDownload(URL(string: "https://github.com/o/r/releases/download/v1/Murmur-v1.zip")!))
+        XCTAssertTrue(NetworkSafety.isGitHubDownload(URL(string: "https://objects.githubusercontent.com/x")!))
+        XCTAssertFalse(NetworkSafety.isGitHubDownload(URL(string: "http://github.com/o/r/releases/download/v1/Murmur-v1.zip")!))
+        XCTAssertFalse(NetworkSafety.isGitHubDownload(URL(string: "https://github.com.evil.example/x.zip")!))
+        let json = """
+        {"tag_name": "v9.0.0", "html_url": "https://github.com/o/r/releases/tag/v9.0.0",
+         "assets": [{"name": "Murmur-v9.0.0.zip", "browser_download_url": "http://example.com/Murmur-v9.0.0.zip"}]}
+        """
+        XCTAssertThrowsError(try UpdateChecker.parse(Data(json.utf8))) { error in
+            XCTAssertEqual(error as? UpdateError, .untrustedDownload("http://example.com/Murmur-v9.0.0.zip"))
+        }
+    }
+
+    func testSnippetValidation() {
+        XCTAssertNil(VoiceCommands.problem(with: Snippet(say: "my email", insert: "me@example.com")))
+        XCTAssertNotNil(VoiceCommands.problem(with: Snippet(say: "  ", insert: "x")))
+        XCTAssertNotNil(VoiceCommands.problem(with: Snippet(say: "sig", insert: " \n")))
+        XCTAssertNotNil(VoiceCommands.problem(with: Snippet(say: "Scratch that!", insert: "x")))
+        XCTAssertNotNil(VoiceCommands.problem(with: Snippet(say: "new line", insert: "x")))
+    }
+}

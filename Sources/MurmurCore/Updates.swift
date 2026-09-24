@@ -46,12 +46,14 @@ public enum UpdateError: Error, CustomStringConvertible, Equatable {
     case badRepository(String)
     case noRelease
     case noDownload(String)
+    case untrustedDownload(String)
 
     public var description: String {
         switch self {
         case let .badRepository(repo): return "updates.repository \"\(repo)\" is not \"owner/name\"."
         case .noRelease: return "No published release was found."
         case let .noDownload(tag): return "Release \(tag) has no Murmur zip to download."
+        case let .untrustedDownload(url): return "The update's download (\(url)) is not an https GitHub address."
         }
     }
 }
@@ -110,6 +112,11 @@ public struct UpdateChecker: Sendable {
         let zips = release.assets.filter { $0.name.hasSuffix(".zip") && $0.name.lowercased().hasPrefix("murmur") }
         guard let asset = zips.first(where: { $0.name == "Murmur-\(release.tag_name).zip" }) ?? zips.first else {
             throw UpdateError.noDownload(release.tag_name)
+        }
+        // Belt and braces: the app is verified after download too, but never fetch it over plain http
+        // or from anywhere but GitHub.
+        guard NetworkSafety.isGitHubDownload(asset.browser_download_url) else {
+            throw UpdateError.untrustedDownload(asset.browser_download_url.absoluteString)
         }
         return ReleaseInfo(version: version, tag: release.tag_name, page: release.html_url,
                            download: asset.browser_download_url, notes: release.body ?? "")

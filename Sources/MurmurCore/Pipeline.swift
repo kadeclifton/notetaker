@@ -45,6 +45,7 @@ extension CleanupProvider {
 public enum SetupError: Error, CustomStringConvertible, Equatable {
     case missingKey(String)
     case badBaseURL(String)
+    case insecureBaseURL(String)
     case noLocalLLM
 
     public var description: String {
@@ -53,6 +54,8 @@ public enum SetupError: Error, CustomStringConvertible, Equatable {
             return "\(name) is not set. Add it to ~/.config/murmur/.env, or change the provider in config.json."
         case let .badBaseURL(value):
             return "cleanup.baseURL \"\(value)\" is not a valid URL."
+        case let .insecureBaseURL(value):
+            return "cleanup.baseURL \"\(value)\" sends your text unencrypted over the internet. Use https://, or a server on this Mac or your home network."
         case .noLocalLLM:
             return "No Ollama or LM Studio with a chat model is running on this Mac. Start one, or pick another provider."
         }
@@ -141,6 +144,7 @@ extension Config {
         case .custom:
             let base = baseURL.isEmpty ? "http://localhost:11434/v1" : baseURL
             guard let url = URL(string: base), url.scheme != nil else { throw SetupError.badBaseURL(base) }
+            guard NetworkSafety.isAllowed(url) else { throw SetupError.insecureBaseURL(base) }
             let key = env["CLEANUP_API_KEY"].flatMap { $0.isEmpty ? nil : $0 }
             return OpenAICompatibleChat(service: url.host ?? "custom", baseURL: url, apiKey: key, model: modelName, client: client)
         case .anthropic:

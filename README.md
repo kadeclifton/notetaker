@@ -3,6 +3,9 @@
 System-wide dictation for macOS, in the spirit of Wispr Flow. Hold a key, talk, let go, and
 the text appears at your cursor in whatever app has focus.
 
+**[⬇︎ Download Murmur for Mac](https://github.com/kadeclifton/notetaker/releases/latest)** (Apple Silicon,
+macOS 14+) · [Install guide](docs/INSTALL.md) · [Privacy](PRIVACY.md)
+
 - **Three ways to talk.** Hold `fn` alone for plain dictation: exactly what you said, as fast as
   possible. Add `⌃` (fn⌃) to clean it up: filler words out, punctuation fixed. Add `⌃⌥` (fn⌃⌥) to
   **Compose**: ramble it out, and a bigger model turns it into finished writing (a message, an email,
@@ -38,8 +41,8 @@ the text appears at your cursor in whatever app has focus.
 - **No accounts, no telemetry.** Nothing leaves your Mac unless you configure a cloud API.
   With the local model and cleanup off (or a local LLM), it works fully offline.
 
-**Just want to use it?** Download the latest release and follow [docs/INSTALL.md](docs/INSTALL.md):
-no Xcode needed, a setup window walks you through the rest.
+**Just want to use it?** [Download the latest release](https://github.com/kadeclifton/notetaker/releases/latest)
+and follow [docs/INSTALL.md](docs/INSTALL.md): no Xcode needed, a setup window walks you through the rest.
 
 ## Requirements
 

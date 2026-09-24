@@ -30,8 +30,9 @@ final class UpdatesTests: XCTestCase {
     }
 
     func testPicksTheMurmurZipAmongOtherFiles() throws {
-        let assets = #"[{"name":"notes.txt","browser_download_url":"https://x/notes.txt"},{"name":"Murmur-v0.1.4.zip","browser_download_url":"https://x/m.zip"}]"#
-        XCTAssertEqual(try UpdateChecker.parse(Data(release(assets: assets).utf8)).download.absoluteString, "https://x/m.zip")
+        let assets = #"[{"name":"notes.txt","browser_download_url":"https://github.com/o/r/releases/download/v0.1.4/notes.txt"},{"name":"Murmur-v0.1.4.zip","browser_download_url":"https://github.com/o/r/releases/download/v0.1.4/m.zip"}]"#
+        XCTAssertEqual(try UpdateChecker.parse(Data(release(assets: assets).utf8)).download.absoluteString,
+                       "https://github.com/o/r/releases/download/v0.1.4/m.zip")
     }
 
     func testNothingToInstall() async {

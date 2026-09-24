@@ -1,0 +1,11 @@
+name: Idea
+description: Something that would make Murmur better
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: What you're trying to do, and what gets in the way today.
+    validations:
+      required: true
