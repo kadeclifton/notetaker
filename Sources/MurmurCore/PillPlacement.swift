@@ -1,4 +1,8 @@
 import Foundation
+#if canImport(CoreGraphics)
+// CGRect's minX, maxY and friends live in CoreGraphics on Apple platforms (Foundation has them on Linux).
+import CoreGraphics
+#endif
 
 /// Where the floating status pill sits on screen.
 public enum PillPosition: String, CaseIterable, Sendable {
