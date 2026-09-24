@@ -21,8 +21,9 @@ the text appears at your cursor in whatever app has focus.
   If cleanup fails or no key is set, the raw transcript is inserted, so nothing is lost.
 - **Inserts anywhere.** Pasteboard + Cmd-V (default) or simulated keystrokes. The transcript stays on
   the clipboard so you can paste it again; or set a flag to restore your previous clipboard.
-- **A tiny pill** at the bottom of the screen shows when it's live, which mode you're in, the input
-  level, and a countdown near the hands-free limit.
+- **A tiny pill** just under the menu bar shows when it's live, which mode you're in, the input
+  level, and a countdown near the hands-free limit. Drag it anywhere (it remembers), or pick a spot
+  in Settings → Pill Position.
 - **Meeting Notes.** Start it from the menu bar before a call. Murmur records your mic ("Me") and the
   call's audio ("Others"), transcribes as it goes, and when you stop writes a Markdown file with a
   summary, decisions, action items and the full transcript. Works with Zoom, Meet, Teams, FaceTime,

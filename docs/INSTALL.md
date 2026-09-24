@@ -92,6 +92,8 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
 - **Microphone** (menu bar icon) picks which mic to use. If it keeps saying "No sound from …", pick
   your mic there (a webcam or display mic, say) and check its level in System Settings → Sound →
   Input.
+- The **pill** (Listening, Transcribing) sits under the menu bar. Drag it wherever it's out of
+  your way, or pick a spot in Settings → Pill Position.
 - **Settings → How to Use Murmur** shows all of this on one page.
 - **Meeting Notes** (menu bar icon → Start Meeting Notes) records a call and writes notes. It asks for Screen &
   System Audio Recording the first time, to hear the other people.

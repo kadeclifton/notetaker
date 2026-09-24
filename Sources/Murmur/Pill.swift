@@ -22,14 +22,36 @@ final class PillModel: ObservableObject {
     @Published var mode: DictationMode = .dictate
 }
 
-/// A small always-on-top capsule near the bottom of the screen. It never takes focus
-/// or clicks, so the app you are dictating into stays active.
+/// A small always-on-top capsule, under the menu bar by default. It never takes focus, so the app
+/// you are dictating into stays active, but it can be dragged anywhere; the spot is remembered.
 @MainActor
 final class PillController {
     let model = PillModel()
     private let panel: NSPanel
     private let hosting: NSHostingView<PillView>
     private var flashTask: Task<Void, Never>?
+    /// True while Murmur itself moves the pill, so only the user's drags are saved.
+    private var positioning = false
+    private var moveObserver: NSObjectProtocol?
+
+    static let positionKey = "pillPosition"
+    static let customXKey = "pillCustomX"
+    static let customYKey = "pillCustomY"
+
+    /// Where the pill goes. Set from the menu; dragging it sets `.custom`.
+    var position: PillPosition {
+        get { PillPosition(rawValue: UserDefaults.standard.string(forKey: Self.positionKey) ?? "") ?? .default }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: Self.positionKey)
+            if panel.isVisible { layout() }
+        }
+    }
+
+    private var customAnchor: CGPoint? {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: Self.customXKey) != nil else { return nil }
+        return CGPoint(x: defaults.double(forKey: Self.customXKey), y: defaults.double(forKey: Self.customYKey))
+    }
 
     init() {
         hosting = NSHostingView(rootView: PillView(model: model))
@@ -41,11 +63,26 @@ final class PillController {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = false
-        panel.ignoresMouseEvents = true
+        // Takes the mouse only so it can be dragged; a borderless panel never becomes key, so the
+        // text field you are dictating into keeps the keyboard.
+        panel.ignoresMouseEvents = false
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.contentView = hosting
+        // The pill has no buttons, so a see-through layer on top takes every click and turns it into a drag.
+        let container = NSView(frame: hosting.frame)
+        hosting.autoresizingMask = [.width, .height]
+        hosting.frame = container.bounds
+        container.addSubview(hosting)
+        let grip = DragOverlay(frame: container.bounds)
+        grip.autoresizingMask = [.width, .height]
+        grip.toolTip = "Drag to move"
+        container.addSubview(grip)
+        panel.contentView = container
+        moveObserver = NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel,
+                                                              queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.userMoved() }
+        }
     }
 
     func show(_ phase: PillPhase) {
@@ -77,7 +114,7 @@ final class PillController {
         panel.orderOut(nil)
     }
 
-    /// Resizes to fit the content (the text changes as the clock runs) and keeps it centered.
+    /// Resizes to fit the content (the text changes as the clock runs) and keeps it in place.
     func relayout() {
         let size = hosting.fittingSize
         if panel.isVisible, panel.frame.size == size { return }
@@ -86,11 +123,33 @@ final class PillController {
 
     private func layout() {
         let size = hosting.fittingSize
-        let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
-        guard let frame = screen?.visibleFrame else { return }
-        let origin = NSPoint(x: frame.midX - size.width / 2, y: frame.minY + 28)
+        guard let frame = screen()?.visibleFrame else { return }
+        let origin = PillPlacement.origin(for: position, size: size, in: frame, custom: customAnchor)
+        positioning = true
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        positioning = false
     }
+
+    /// The screen with the mouse on it: where you are working.
+    private func screen() -> NSScreen? {
+        NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
+    }
+
+    /// A drag: remember the spot, as a fraction of the screen so it carries over to other displays.
+    private func userMoved() {
+        guard !positioning, let frame = (panel.screen ?? screen())?.visibleFrame else { return }
+        let anchor = PillPlacement.anchor(of: panel.frame, in: frame)
+        let defaults = UserDefaults.standard
+        defaults.set(Double(anchor.x), forKey: Self.customXKey)
+        defaults.set(Double(anchor.y), forKey: Self.customYKey)
+        defaults.set(PillPosition.custom.rawValue, forKey: Self.positionKey)
+    }
+}
+
+/// Turns a press anywhere on the pill into a window drag, even though Murmur is not the active app.
+private final class DragOverlay: NSView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
 }
 
 struct PillView: View {
