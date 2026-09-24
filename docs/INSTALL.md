@@ -2,51 +2,11 @@
 
 Hold a key, talk, let go: your words appear wherever you're typing. Everything runs on your Mac.
 
-**You need:** a Mac with Apple Silicon (M1 or newer) on macOS 14 Sonoma or later. About 15 minutes the
-first time, mostly waiting on downloads.
+**You need:** a Mac with Apple Silicon (M1 or newer) on macOS 14 Sonoma or later. About 5 minutes the
+first time, mostly waiting on the speech model download. Nothing else to install: the speech
+recognizer (whisper.cpp) comes inside Murmur, so there's no Homebrew or Terminal step.
 
-## 1. Install the speech recognizer
-
-Murmur's speech recognition (whisper.cpp) is installed with [Homebrew](https://brew.sh), the usual
-way to add command-line tools to a Mac. Open **Terminal** (⌘Space, type "Terminal", press Return).
-
-**a. Check whether you already have Homebrew:**
-
-```sh
-brew --version
-```
-
-If it prints a version such as `Homebrew 4.x`, skip to **c**. If it says `command not found`, do **b**.
-
-**b. Install Homebrew.** Paste this line and press Return:
-
-```sh
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-- It asks for your Mac password. Nothing appears while you type it; that is normal. Press Return.
-- Press Return again when it says "Press RETURN to continue".
-- It may install Apple's Command Line Tools first. That can take 5 to 10 minutes.
-- At the end it prints "Next steps" with two commands. Run them, or paste these two lines, which do
-  the same thing:
-
-  ```sh
-  echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-  ```
-
-- Check that it worked: `brew --version` now prints a version.
-
-**c. Install whisper.cpp:**
-
-```sh
-brew install whisper-cpp
-```
-
-That's all Terminal is needed for. (Or skip this step: Murmur's setup window has an **Install in
-Terminal** button that opens Terminal and runs all of it for you.)
-
-## 2. Install Murmur
+## 1. Install Murmur
 
 1. Download **Murmur-….dmg** from the release page (under **Assets**) and double-click it.
 2. A window opens: drag the **Murmur** icon onto the **Applications** folder next to it.
@@ -63,7 +23,7 @@ Terminal** button that opens Terminal and runs all of it for you.)
 
 5. Once Murmur is open, its wave icon appears in the menu bar (there is no Dock icon), and a setup window opens.
 
-## 3. Finish setup
+## 2. Finish setup
 
 The setup window walks you through the rest, with a button for each step:
 
@@ -81,10 +41,14 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
 - **Hold fn⌃** (fn + control) to clean it up: no "um"s, proper punctuation.
 - **Hold fn⌃⌥** (fn + control + option) to **Compose**: ramble it out, and a panel writes it up as a
   message, email, bullets and so on. Say "as bullet points" or "make it an email" to steer it, or pick
-  a style in the panel. Press Return to insert it. Everything is kept in the **Compose Library** (⌘L
+  a style in the panel. Press Return to insert it. Everything is kept in the **Library** (⌘L
   from the menu). Cleanup and Compose need the optional model below.
 - **Double-tap fn** for hands-free; tap fn again to finish.
 - **Esc** cancels.
+- Say **"scratch that"** on its own to undo the last dictation (Murmur presses ⌘Z in that app). End
+  a sentence with "scratch that" and nothing from it is typed.
+- **Snippets** (Settings… → Snippets): say a phrase like "my email" on its own and saved text is
+  typed instead.
 - **Recent** (menu bar icon) holds your last 10 dictations: click one to copy it again. If you
   finish talking while a list or button is selected rather than a text box, Murmur leaves the
   words on the clipboard instead of losing them; press ⌘V where you want them.
@@ -93,10 +57,21 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
   your mic there (a webcam or display mic, say) and check its level in System Settings → Sound →
   Input.
 - The **pill** (Listening, Transcribing) sits under the menu bar. Drag it wherever it's out of
-  your way, or pick a spot in Settings → Pill Position.
-- **Settings → How to Use Murmur** shows all of this on one page.
+  your way, or pick a spot in Settings… → General.
+- **Settings…** (⌘, from the menu) changes the hotkey (click Change… and press the key you want),
+  microphone, speech model, Neural Engine, vocabulary, snippets and meeting options.
+- **More → How to Use Murmur** shows all of this on one page.
 - **Meeting Notes** (menu bar icon → Start Meeting Notes) records a call and writes notes. It asks for Screen &
-  System Audio Recording the first time, to hear the other people.
+  System Audio Recording the first time, to hear the other people. When a call starts in Zoom, Teams,
+  FaceTime, Slack or a browser, Murmur offers to take notes (it never starts on its own; turn the
+  offer off in Settings… → Meetings). **Live Transcript…** shows it as it's written, and every
+  meeting is in the **Library** (⌘L) next to your Compose pieces.
+- **Use the Neural Engine** (Settings… → Speech) runs part of speech recognition on Apple's Neural
+  Engine instead of the GPU: less GPU and battery use. It's a one-time download (40 MB to 1.2 GB
+  depending on the model), and the first dictation afterwards takes a minute or two while macOS
+  prepares it.
+- **Copy Diagnostics** (Settings… → About, or More) copies your settings and status for a bug
+  report. It never includes anything you dictated or your API keys.
 
 **Speech Model** in the menu switches between the speed and accuracy options and shows how long
 the last dictation took. **Cleanup & Compose** shows which models are in use and lets you pick a
@@ -106,11 +81,11 @@ smaller Compose Model if writing feels slow.
 
 When a new version is out, the menu bar menu shows **⬆︎ Update to v…**. Click it, then **Update and
 Restart**: Murmur downloads it, checks it comes from the same developer, and restarts. Settings,
-models, the Compose Library and permissions carry over. **Settings → Check for Updates…** looks
+models, the Compose Library and permissions carry over. **Settings… → About → Check for Updates** looks
 right away. (You can also download the new zip yourself and replace Murmur in Applications.)
 
 If Murmur stops reacting to fn after an update, macOS is holding on to the old permission: open
-the menu → **Settings → Setup…**, click **Reset Murmur's Permissions and Ask Again**, and allow them.
+the menu → **More → Setup…**, click **Reset Murmur's Permissions and Ask Again**, and allow them.
 
 ## Optional: cleanup (fn⌃) and Compose (fn⌃⌥)
 

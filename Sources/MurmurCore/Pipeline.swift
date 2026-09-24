@@ -166,6 +166,18 @@ public struct PipelineResult: Sendable, Equatable {
     /// How long each step took, for the menu's "Last dictation" line.
     public var transcribeSeconds: TimeInterval = 0
     public var cleanupSeconds: TimeInterval?
+    /// Set when what was said was a command to Murmur rather than text.
+    public var command: SpokenCommand?
+}
+
+/// Things said to Murmur instead of dictated.
+public enum SpokenCommand: Sendable, Equatable {
+    /// "Scratch that" on its own: take back the last dictation.
+    case undo
+    /// Ended in "scratch that": nothing is inserted.
+    case scratched
+    /// A snippet's phrase: its text is inserted as is.
+    case snippet
 }
 
 /// Audio in, text out: transcribe, then clean up. Cancelling the task stops whichever step is running.
@@ -174,12 +186,18 @@ public struct DictationPipeline: Sendable {
     public var cleaner: TextCleaner?
     public var language: String?
     public var prompt: String?
+    /// Snippets to expand and "scratch that" to obey. Off for Compose, which reads everything.
+    public var snippets: [Snippet]
+    public var voiceCommands: Bool
 
-    public init(transcriber: Transcriber, cleaner: TextCleaner?, language: String?, prompt: String?) {
+    public init(transcriber: Transcriber, cleaner: TextCleaner?, language: String?, prompt: String?,
+                snippets: [Snippet] = [], voiceCommands: Bool = false) {
         self.transcriber = transcriber
         self.cleaner = cleaner
         self.language = language
         self.prompt = prompt
+        self.snippets = snippets
+        self.voiceCommands = voiceCommands
     }
 
     /// Only `clean` gets a cleaner: `dictate` inserts what Whisper heard, and `compose` hands the
@@ -192,7 +210,9 @@ public struct DictationPipeline: Sendable {
             transcriber: try config.makeTranscriber(env: env, client: client),
             cleaner: mode == .clean ? try config.makeCleaner(env: env, local: local, client: client) : nil,
             language: language.isEmpty || language == "auto" ? nil : language,
-            prompt: vocabulary.isEmpty ? nil : vocabulary.joined(separator: ", ") + "."
+            prompt: vocabulary.isEmpty ? nil : vocabulary.joined(separator: ", ") + ".",
+            snippets: config.snippets,
+            voiceCommands: mode != .compose
         )
     }
 
@@ -228,6 +248,20 @@ public struct DictationPipeline: Sendable {
         let transcript = TranscriptFilter.clean(heard)
         guard !transcript.isEmpty else {
             return PipelineResult(transcript: "", text: "", cleanupProblem: nil, transcribeSeconds: transcribeSeconds)
+        }
+        if voiceCommands {
+            var command: PipelineResult?
+            if VoiceCommands.isUndo(transcript) {
+                command = PipelineResult(transcript: transcript, text: "", command: .undo)
+            } else if VoiceCommands.isScratched(transcript) {
+                command = PipelineResult(transcript: transcript, text: "", command: .scratched)
+            } else if let text = VoiceCommands.snippet(for: transcript, in: snippets) {
+                command = PipelineResult(transcript: transcript, text: text, command: .snippet)
+            }
+            if var command {
+                command.transcribeSeconds = transcribeSeconds
+                return command
+            }
         }
         guard let cleaner else {
             return PipelineResult(transcript: transcript, text: transcript, cleanupProblem: nil, transcribeSeconds: transcribeSeconds)

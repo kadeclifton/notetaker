@@ -133,6 +133,18 @@ final class TextInserter {
 
     // MARK: Keystrokes
 
+    /// ⌘Z in the frontmost app: takes back a paste in one step ("scratch that").
+    func postUndo() {
+        let source = CGEventSource(stateID: .hidSystemState)
+        let z = Self.keyCode(for: "z") ?? CGKeyCode(kVK_ANSI_Z)
+        for keyDown in [true, false] {
+            guard let event = CGEvent(keyboardEventSource: source, virtualKey: z, keyDown: keyDown) else { continue }
+            event.flags = .maskCommand
+            event.setIntegerValueField(.eventSourceUserData, value: HotkeyMonitor.syntheticEventMarker)
+            event.post(tap: .cghidEventTap)
+        }
+    }
+
     private func postCommandV() {
         let source = CGEventSource(stateID: .hidSystemState)
         let v = Self.keyCode(for: "v") ?? CGKeyCode(kVK_ANSI_V)

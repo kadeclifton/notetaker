@@ -25,7 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let controller = DictationController()
         let statusMenu = StatusMenu(controller: controller)
-        controller.onChange = { [weak statusMenu] in statusMenu?.updateIcon() }
+        controller.onChange = { [weak statusMenu, weak controller] in
+            statusMenu?.updateIcon()
+            controller?.settingsWindow.refresh()
+        }
         self.controller = controller
         self.statusMenu = statusMenu
         controller.start()

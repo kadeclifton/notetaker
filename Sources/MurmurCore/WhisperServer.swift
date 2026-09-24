@@ -139,8 +139,10 @@ public final class WhisperServer: WhisperServing, @unchecked Sendable {
         lock.withLock { self.process = process }
         try? Data(String(process.processIdentifier).utf8).write(to: pidFile)
 
-        // Loading a model takes a few seconds; the first run on a Mac also compiles Metal kernels.
-        let deadline = Date().addingTimeInterval(120)
+        // Loading a model takes a few seconds; the first run on a Mac also compiles Metal kernels,
+        // and the first run with a Core ML encoder has macOS prepare it for the Neural Engine,
+        // which can take minutes for the large model.
+        let deadline = Date().addingTimeInterval(CoreMLEncoder.isInstalled(forModel: settings.model) ? 900 : 120)
         while Date() < deadline {
             if Task.isCancelled {
                 process.terminate()

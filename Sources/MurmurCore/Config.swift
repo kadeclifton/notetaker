@@ -45,6 +45,8 @@ public struct Config: Codable, Equatable, Sendable {
     public var meeting = MeetingConfig()
     public var compose = ComposeConfig()
     public var updates = UpdatesConfig()
+    /// Phrases that insert saved text when said on their own.
+    public var snippets: [Snippet] = []
 
     public init() {}
 }
@@ -143,6 +145,8 @@ public struct MeetingConfig: Codable, Equatable, Sendable {
     public var summaryProvider: CleanupProvider = .auto
     public var summaryModel: String = ""
     public var summaryTimeoutSeconds: Double = 600
+    /// When a call starts (Zoom, Teams, Meet…), ask whether to take notes.
+    public var offerWhenCallStarts: Bool = true
 
     public init() {}
 }
@@ -348,7 +352,9 @@ extension Config {
         // Same choices as cleanup.provider. "local" = Ollama or LM Studio on this Mac.
         "summaryProvider": "auto",
         "summaryModel": "",
-        "summaryTimeoutSeconds": 600
+        "summaryTimeoutSeconds": 600,
+        // Ask "Take notes?" when a call starts in Zoom, Teams, FaceTime, Meet and the like.
+        "offerWhenCallStarts": true
       },
 
       // Compose (hotkey + ⌃⌥): say it however it comes out; get it back thought through.
@@ -365,7 +371,12 @@ extension Config {
         // Every piece is kept here with what you said. Browse it from the menu: Compose Library.
         "folder": "~/Documents/Murmur Library",
         "extraInstructions": ""
-      }
+      },
+
+      // Say the phrase on its own and the text is inserted instead, e.g.
+      //   { "say": "my address", "insert": "1 Infinite Loop, Cupertino" }
+      // Manage them in Settings → Snippets.
+      "snippets": []
     }
 
     """

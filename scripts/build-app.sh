@@ -12,6 +12,10 @@
 #   3. Ad-hoc, which gets a new signature every build; --install then clears Murmur's old permission
 #      entries (they would look granted in System Settings but no longer apply) so macOS asks again.
 # CODESIGN_IDENTITY picks another certificate, or "-" to force ad-hoc.
+#
+# whisper.cpp: if scripts/build-whisper.sh has built it (build/whisper/bin), whisper-server and
+# whisper-cli go inside the app, so dictation works without Homebrew and can use the Neural Engine.
+# Releases always include them; set MURMUR_REQUIRE_WHISPER=1 to fail when they are missing.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -38,6 +42,19 @@ BIN="$(swift build -c release --arch arm64 --show-bin-path)/Murmur"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Murmur"
+WHISPER_BIN="$ROOT/build/whisper/bin"
+HELPERS=()
+if [[ -x "$WHISPER_BIN/whisper-server" && -x "$WHISPER_BIN/whisper-cli" ]]; then
+    for helper in whisper-server whisper-cli; do
+        cp "$WHISPER_BIN/$helper" "$APP/Contents/MacOS/$helper"
+        HELPERS+=("$APP/Contents/MacOS/$helper")
+    done
+elif [[ "${MURMUR_REQUIRE_WHISPER:-}" == 1 ]]; then
+    echo "build/whisper/bin is missing; run scripts/build-whisper.sh first." >&2
+    exit 1
+else
+    echo "Note: no bundled whisper.cpp (run scripts/build-whisper.sh to include it); Murmur will use Homebrew's." >&2
+fi
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
@@ -66,14 +83,11 @@ if [[ -n "${MURMUR_VERSION:-}" ]]; then
     plutil -replace CFBundleShortVersionString -string "${MURMUR_VERSION#v}" "$APP/Contents/Info.plist"
     plutil -replace CFBundleVersion -string "${MURMUR_BUILD:-1}" "$APP/Contents/Info.plist"
 fi
-if [[ "$IDENTITY" == "Developer ID Application:"* ]]; then
-    # What notarization requires: hardened runtime, a secure timestamp, and the entitlements
-    # the hardened runtime would otherwise withhold (the microphone).
-    # The secure timestamp comes from Apple's server, which now and then does not answer.
+# The secure timestamp comes from Apple's server, which now and then does not answer.
+sign_with_retry() {
     for attempt in 1 2 3 4; do
-        if codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" --options runtime --timestamp \
-                --entitlements "$ROOT/Resources/Murmur.entitlements" "$APP"; then
-            break
+        if codesign "$@"; then
+            return 0
         fi
         if [[ $attempt == 4 ]]; then
             echo "Signing failed 4 times (Apple's timestamp server may be down); try again later." >&2
@@ -82,10 +96,25 @@ if [[ "$IDENTITY" == "Developer ID Application:"* ]]; then
         echo "Signing failed; retrying in $((attempt * 10)) s (attempt $((attempt + 1)) of 4)." >&2
         sleep $((attempt * 10))
     done
+}
+
+# Helpers first: the app's signature seals them as they are.
+if [[ "$IDENTITY" == "Developer ID Application:"* ]]; then
+    # What notarization requires: hardened runtime, a secure timestamp, and the entitlements
+    # the hardened runtime would otherwise withhold (the microphone).
+    for helper in ${HELPERS[@]+"${HELPERS[@]}"}; do
+        sign_with_retry --force --sign "$IDENTITY" --options runtime --timestamp "$helper"
+    done
+    sign_with_retry --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" --options runtime --timestamp \
+        --entitlements "$ROOT/Resources/Murmur.entitlements" "$APP"
 else
+    for helper in ${HELPERS[@]+"${HELPERS[@]}"}; do
+        codesign --force --sign "$IDENTITY" "$helper"
+    done
     codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"
 fi
 
+[[ ${#HELPERS[@]} -gt 0 ]] && ICON_NOTE="$ICON_NOTE, whisper.cpp $(cat "$ROOT/build/whisper/VERSION") with Core ML"
 if [[ "$IDENTITY" == "-" ]]; then
     echo "Built $APP (ad-hoc signed, $ICON_NOTE)"
     echo "Tip: run scripts/setup-signing.sh once so macOS permissions survive rebuilds."
