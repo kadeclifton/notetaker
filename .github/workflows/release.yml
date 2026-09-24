@@ -24,7 +24,7 @@ jobs:
     env:
       SIGNED: ${{ secrets.DEVELOPER_ID_P12 != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Use the newest Xcode (26+ compiles the dark and tinted icon)
         run: |
           XCODE="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
@@ -80,7 +80,7 @@ jobs:
           echo "Signing as $IDENTITY"
           echo "CODESIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
       - name: Cache whisper.cpp
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             build/whisper/bin
