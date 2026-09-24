@@ -404,6 +404,18 @@ final class DictationController {
         NSWorkspace.shared.open(folder)
     }
 
+    // MARK: Pill
+
+    /// Where the status pill sits. Dragging the pill sets `.custom`.
+    var pillPosition: PillPosition {
+        get { pill.position }
+        set {
+            pill.position = newValue
+            if !isRecording && !isWorking { flash("The pill shows here") }
+            onChange?()
+        }
+    }
+
     // MARK: Microphone
 
     var microphones: [InputDevice] { AudioDevices.inputs() }

@@ -207,6 +207,22 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         return menu
     }
 
+    /// Where the Listening/Transcribing pill appears. Dragging the pill picks "Where I Dragged It".
+    private func pillPositionMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let current = controller.pillPosition
+        for position in PillPosition.allCases {
+            let choice = item(position.title, action: #selector(setPillPosition(_:)))
+            choice.representedObject = position.rawValue
+            choice.state = position == current ? .on : .off
+            menu.addItem(choice)
+            if position == .bottomRight { menu.addItem(.separator()) }
+        }
+        menu.addItem(info("Or drag the pill anywhere while it shows"))
+        return menu
+    }
+
     /// Names and jargon Whisper should spell right.
     private func vocabularyMenu() -> NSMenu {
         let menu = NSMenu()
@@ -292,6 +308,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.autoenablesItems = false
         menu.addItem(item(controller.needsSetup ? "Finish Setup…" : "Setup…", action: #selector(showSetup)))
         menu.addItem(item("How to Use Murmur…", action: #selector(showHowTo)))
+        menu.addItem(submenu("Pill Position", pillPositionMenu()))
         let login = item("Launch at Login", action: #selector(toggleLaunchAtLogin))
         login.state = LoginItem.isEnabled ? .on : (LoginItem.needsApproval ? .mixed : .off)
         menu.addItem(login)
@@ -446,6 +463,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         case .alertSecondButtonReturn: controller.updater.openReleasePage()
         default: break
         }
+    }
+
+    @objc private func setPillPosition(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let position = PillPosition(rawValue: raw) else { return }
+        controller.pillPosition = position
     }
 
     @objc private func selectMicrophone(_ sender: NSMenuItem) {
