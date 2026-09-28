@@ -78,6 +78,8 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
   Engine instead of the GPU: less GPU and battery use. It's a one-time download (40 MB to 1.2 GB
   depending on the model), and the first dictation afterwards takes a minute or two while macOS
   prepares it.
+- **Free memory when idle** (Settings… → Speech): the speech model is kept in memory so dictation
+  starts instantly, and let go after 15 minutes without dictating. Pick 5 or 30 minutes, or Never.
 - **Settings… → General** shows how many words you dictated this week and roughly how much typing
   that saved, counted on your Mac only.
 - **Copy Diagnostics** (Settings… → About, or More) copies your settings, status and recent errors

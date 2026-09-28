@@ -43,8 +43,25 @@ final class SpeechModelChoiceTests: XCTestCase {
     }
 
     func testIdleUnloadSetting() throws {
-        XCTAssertEqual(Config().transcription.whisperCpp.unloadAfterMinutes, 30)
+        XCTAssertEqual(Config().transcription.whisperCpp.unloadAfterMinutes, 15)
         XCTAssertEqual(try Config.parse(Config.defaultFileContents), Config())
+    }
+
+    func testIdleUnloadEdit() throws {
+        // What Settings → Speech → Free memory when idle writes: only that number changes.
+        let edited = try XCTUnwrap(ConfigFileEdit.setting("whisperCpp", "unloadAfterMinutes", json: "5",
+                                                          in: Config.defaultFileContents,
+                                                          verify: { $0.transcription.whisperCpp.unloadAfterMinutes == 5 }))
+        var expected = Config()
+        expected.transcription.whisperCpp.unloadAfterMinutes = 5
+        XCTAssertEqual(try Config.parse(edited), expected)
+        XCTAssertTrue(edited.contains("// Free the model's memory"), "comments survive")
+
+        // A settings file from before the key existed gets it added inside whisperCpp.
+        let old = #"{ "transcription": { "whisperCpp": { "model": "models/ggml-small.en.bin" } } }"#
+        let added = try XCTUnwrap(ConfigFileEdit.setting("whisperCpp", "unloadAfterMinutes", json: "0", in: old,
+                                                         verify: { $0.transcription.whisperCpp.unloadAfterMinutes == 0 }))
+        XCTAssertEqual(try Config.parse(added).transcription.whisperCpp.model, "models/ggml-small.en.bin")
     }
 }
 

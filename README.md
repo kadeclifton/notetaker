@@ -209,8 +209,8 @@ it: the text stays on the clipboard and the pill says so. Anything uncertain, in
 and Electron apps that report no focused element, gets the paste as usual. The pill shows **Transcribing**, then
 **Cleaning up**, and the menu bar wave pulses while either runs.
 
-**Memory.** whisper-server stops after 30 minutes without dictation
-(`whisperCpp.unloadAfterMinutes`, 0 to keep it) and starts again the moment you press the hotkey,
+**Memory.** whisper-server stops after 15 minutes without dictation (Settings → Speech → **Free
+memory when idle**: 5, 15 or 30 minutes, or never; `whisperCpp.unloadAfterMinutes`) and starts again the moment you press the hotkey,
 while you talk. Compose's automatic model choice skips "thinking" builds (named so, or seen
 reasoning regardless) when another model fits, since they spend 20 to 40 seconds reasoning first.
 

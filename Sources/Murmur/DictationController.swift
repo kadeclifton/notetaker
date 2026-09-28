@@ -1303,6 +1303,32 @@ final class DictationController {
         return transcriber.server as? WhisperServer
     }
 
+    /// Minutes without dictation before the speech model's memory is freed; 0 keeps it loaded.
+    var unloadAfterMinutes: Double { config.transcription.whisperCpp.unloadAfterMinutes }
+
+    /// Whether the speech model is kept loaded in whisper-server (so the idle setting applies).
+    var keepsSpeechModelLoaded: Bool { usesLocalWhisper && config.transcription.whisperCpp.keepModelLoaded }
+
+    /// Changes how long the speech model stays loaded without a full reload, which would load the
+    /// model again right away.
+    func setUnloadAfterMinutes(_ minutes: Double) {
+        do {
+            _ = try Config.loadOrCreate(at: AppPaths.configFile)
+            let json = minutes == minutes.rounded() ? String(Int(minutes)) : String(minutes)
+            guard try ConfigFileEdit.set("whisperCpp", "unloadAfterMinutes", json: json, in: AppPaths.configFile,
+                                         verify: { $0.transcription.whisperCpp.unloadAfterMinutes == minutes }) else {
+                fail("Could not change transcription.whisperCpp.unloadAfterMinutes in the settings file. Edit it by hand, then Reload Settings.")
+                return
+            }
+        } catch {
+            fail("Could not update the settings file: \(error)")
+            return
+        }
+        config.transcription.whisperCpp.unloadAfterMinutes = minutes
+        scheduleIdleUnload()
+        onChange?()
+    }
+
     private func warmWhisperServer() {
         guard let server = whisperServer else { return }
         Task.detached { try? await server.ensureRunning() }

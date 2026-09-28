@@ -79,7 +79,7 @@ public struct WhisperCppConfig: Codable, Equatable, Sendable {
     public var serverPort: Int = 47813
     /// Stop that server after this many minutes without dictation, to give its memory back; it
     /// starts again the moment you press the hotkey. 0 keeps it loaded while Murmur runs.
-    public var unloadAfterMinutes: Double = 30
+    public var unloadAfterMinutes: Double = 15
 
     public init() {}
 }
@@ -290,7 +290,7 @@ extension Config {
           "serverPort": 47813,
           // Free the model's memory after this many idle minutes (it reloads when you press the
           // hotkey, while you talk). 0: keep it loaded as long as Murmur runs.
-          "unloadAfterMinutes": 30
+          "unloadAfterMinutes": 15
         },
         "groqModel": "whisper-large-v3-turbo",
         "openaiModel": "whisper-1",
