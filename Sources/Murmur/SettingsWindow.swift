@@ -555,15 +555,17 @@ private struct AboutTab: View {
                 }
                 if case .upToDate = c.updater.state { Text("You have the latest version.").font(.caption).foregroundStyle(.secondary) }
                 if case let .failed(message) = c.updater.state { Text(message).font(.caption).foregroundStyle(.red) }
-                Toggle(isOn: Binding(get: { c.config.updates.betaUpdates }, set: { on in
-                    c.editSettings("updates", "betaUpdates", json: on ? "true" : "false") { $0.updates.betaUpdates == on }
+                Picker("Updates", selection: Binding(get: { c.config.updates.betaUpdates }, set: { beta in
+                    c.editSettings("updates", "betaUpdates", json: beta ? "true" : "false") { $0.updates.betaUpdates == beta }
                 })) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Get beta updates")
-                        Text("Try new versions before everyone else. They may have rough edges.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                    Text("Release").tag(false)
+                    Text("Beta").tag(true)
                 }
+                .pickerStyle(.segmented)
+                Text(c.config.updates.betaUpdates
+                     ? "Beta: new versions arrive first, before everyone else. They may have rough edges."
+                     : "Release: tested versions only. Switch to Beta to try new ones early.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 HStack {

@@ -130,8 +130,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # A tag with a suffix (v0.2.2-beta.1) is a pre-release: only Macs with "Get beta
-          # updates" on are offered it, and the Download link keeps pointing at the last release.
+          # A tag with a suffix (v0.2.2-beta.1) is a pre-release: only Macs with Updates set to
+          # Beta are offered it, and the Download link keeps pointing at the last release.
           PRERELEASE=""
           case "$GITHUB_REF_NAME" in *-*) PRERELEASE="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" "Murmur-$GITHUB_REF_NAME.dmg" "Murmur-$GITHUB_REF_NAME.zip" \

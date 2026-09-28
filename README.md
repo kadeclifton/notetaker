@@ -421,7 +421,7 @@ git push origin v0.1.0
 ```
 
 **Beta releases.** A tag with a suffix, like `v0.2.2-beta.1`, is published as a pre-release. Only
-Macs with **Settings… → About → Get beta updates** on are offered it; the download link and everyone
+Macs with **Settings… → About → Updates** set to **Beta** are offered it; the download link and everyone
 else stay on the last full release. Test there, then tag `v0.2.2` for everyone.
 
 Each release has `Murmur-vX.dmg`, a disk image that opens as a window with the app and an

@@ -96,7 +96,7 @@ developer. Then the menu bar menu shows **An update is available** with **Restar
 above Quit: click it and Murmur installs the update and restarts. Settings,
 models, the Compose Library and permissions carry over. **Settings… → About → Check for Updates** looks
 right away. (You can also download the new zip yourself and replace Murmur in Applications.)
-**Get beta updates** (same place) offers test versions before everyone else gets them.
+**Updates: Release or Beta** (same place): pick Beta to get new versions before everyone else.
 
 If Murmur stops reacting to fn after an update, macOS is holding on to the old permission: open
 the menu → **More → Setup…**, click **Reset Murmur's Permissions and Ask Again**, and allow them.

@@ -347,7 +347,7 @@ extension Config {
       "updates": {
         "checkAutomatically": true,
         "repository": "kadeclifton/notetaker",
-        // Also get beta versions, to test before everyone else gets them.
+        // The update path: false = Release (tested versions), true = Beta (new versions first).
         "betaUpdates": false
       },
 
