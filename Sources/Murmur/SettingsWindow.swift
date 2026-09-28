@@ -302,6 +302,22 @@ private struct SpeechTab: View {
                         ProgressView("Downloading \(option.title)…", value: progress)
                     }
                     NeuralEngineRow(controller: c, installer: c.coreML)
+                    if c.keepsSpeechModelLoaded {
+                        Picker("Free memory when idle", selection: Binding(get: { c.unloadAfterMinutes },
+                                                                            set: { c.setUnloadAfterMinutes($0) })) {
+                            if !Self.unloadChoices.contains(c.unloadAfterMinutes) {
+                                Text("After \(Self.minutes(c.unloadAfterMinutes)) minutes").tag(c.unloadAfterMinutes)
+                            }
+                            Text("After 5 minutes").tag(5.0)
+                            Text("After 15 minutes").tag(15.0)
+                            Text("After 30 minutes").tag(30.0)
+                            Text("Never").tag(0.0)
+                        }
+                        Text(c.unloadAfterMinutes > 0
+                             ? "The speech model uses memory while loaded. It loads again when you press \(c.hotkeyDescription), so the first dictation after a break is about a second slower."
+                             : "The speech model stays loaded while Murmur runs: every dictation starts instantly, and it keeps using memory.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 LabeledContent("Transcription", value: c.transcriberName)
                 if let timing = c.lastTiming { LabeledContent("Last dictation", value: timing) }
@@ -325,6 +341,12 @@ private struct SpeechTab: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private static let unloadChoices: [Double] = [5, 15, 30, 0]
+
+    private static func minutes(_ value: Double) -> String {
+        value == value.rounded() ? String(Int(value)) : String(format: "%.1f", value)
     }
 
     private func add() {
