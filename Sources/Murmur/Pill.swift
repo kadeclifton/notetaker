@@ -88,6 +88,7 @@ final class PillController {
     func show(_ phase: PillPhase) {
         flashTask?.cancel()
         flashTask = nil
+        if phase != model.phase || !panel.isVisible { announce(phase) }
         model.phase = phase
         relayout()
         if !panel.isVisible { panel.orderFrontRegardless() }
@@ -107,6 +108,20 @@ final class PillController {
     }
 
     var isFlashing: Bool { flashTask != nil }
+
+    /// The pill never takes VoiceOver focus, so VoiceOver users hear what it shows instead.
+    private func announce(_ phase: PillPhase) {
+        guard NSWorkspace.shared.isVoiceOverEnabled else { return }
+        let text: String
+        switch phase {
+        case .recording(.hold): text = model.mode == .dictate ? "Listening" : "Listening, \(model.mode.title)"
+        case .recording(.handsFree): text = "Hands-free, listening. Tap \(model.hotkeyName) to finish."
+        case let .processing(step): text = step
+        case let .message(message, _): text = message
+        }
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+    }
 
     func hide() {
         flashTask?.cancel()
@@ -167,6 +182,7 @@ struct PillView: View {
         .overlay(Capsule().strokeBorder(Color.white.opacity(0.15), lineWidth: 0.5))
         .padding(5)
         .fixedSize()
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
@@ -180,7 +196,7 @@ struct PillView: View {
             Text(Self.clock(model.elapsed)).monospacedDigit().foregroundStyle(.white.opacity(0.6))
 
         case .recording(.handsFree):
-            Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(.orange)
+            Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(.orange).accessibilityHidden(true)
             Text("Hands-free")
             ModeTag(mode: model.mode)
             LevelMeter(level: model.level)
@@ -249,6 +265,7 @@ private struct LevelMeter: View {
         }
         .frame(height: 14)
         .animation(.easeOut(duration: 0.08), value: level)
+        .accessibilityHidden(true)
     }
 }
 #endif

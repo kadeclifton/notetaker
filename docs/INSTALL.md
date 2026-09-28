@@ -32,6 +32,8 @@ The setup window walks you through the rest, with a button for each step:
 - **Allow the microphone.**
 - **Allow Accessibility**, so Murmur can paste into other apps.
 - **Allow Input Monitoring**, so Murmur can see the fn key. Then click **Restart Murmur**.
+- **Try it**: click in the box, hold fn and say something. When your words appear, you're set; if
+  not, the window says what went wrong.
 
 Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so macOS doesn't react to fn too.
 
@@ -78,8 +80,10 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
   prepares it.
 - **Settings… → General** shows how many words you dictated this week and roughly how much typing
   that saved, counted on your Mac only.
-- **Copy Diagnostics** (Settings… → About, or More) copies your settings and status for a bug
-  report. It never includes anything you dictated or your API keys.
+- **Copy Diagnostics** (Settings… → About, or More) copies your settings, status and recent errors
+  for a bug report. It never includes anything you dictated or your API keys.
+- **Remove Murmur…** (Settings… → About) takes Murmur and everything it stored off your Mac. Your
+  Library and meeting notes stay.
 
 **Settings… → Speech** switches between the speed and accuracy options and shows how long the last
 dictation took. **Settings… → Writing** shows which models clean up and compose, and lets you pick a
@@ -92,6 +96,7 @@ developer. Then the menu bar menu shows **An update is available** with **Restar
 above Quit: click it and Murmur installs the update and restarts. Settings,
 models, the Compose Library and permissions carry over. **Settings… → About → Check for Updates** looks
 right away. (You can also download the new zip yourself and replace Murmur in Applications.)
+**Updates: Release or Beta** (same place): pick Beta to get new versions before everyone else.
 
 If Murmur stops reacting to fn after an update, macOS is holding on to the old permission: open
 the menu → **More → Setup…**, click **Reset Murmur's Permissions and Ask Again**, and allow them.

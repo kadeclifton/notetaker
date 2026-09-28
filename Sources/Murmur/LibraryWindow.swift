@@ -240,6 +240,7 @@ private struct LibraryDetail: View {
                 Button("Copy") { model.copy(entry) }
                 Button("Show in Finder") { model.reveal(entry) }
                 Button(role: .destructive) { confirmDelete = true } label: { Image(systemName: "trash") }
+                    .accessibilityLabel("Delete this piece")
                     .help("Delete")
             }
             if entry.text.isEmpty && draft.isEmpty {

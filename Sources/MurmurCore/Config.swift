@@ -181,6 +181,8 @@ public struct UpdatesConfig: Codable, Equatable, Sendable {
     public var checkAutomatically: Bool = true
     /// The GitHub repository releases come from, "owner/name".
     public var repository: String = "kadeclifton/notetaker"
+    /// Also offer pre-releases ("v0.2.2-beta.1"), to test a version before everyone gets it.
+    public var betaUpdates: Bool = false
 
     public init() {}
 }
@@ -344,7 +346,9 @@ extension Config {
       // only goes ahead if the download is signed by the same developer as this copy.
       "updates": {
         "checkAutomatically": true,
-        "repository": "kadeclifton/notetaker"
+        "repository": "kadeclifton/notetaker",
+        // The update path: false = Release (tested versions), true = Beta (new versions first).
+        "betaUpdates": false
       },
 
       // Meeting Notes (menu bar → Start Meeting Notes): records your mic and the call's audio,

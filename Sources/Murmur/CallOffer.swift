@@ -166,7 +166,7 @@ private struct CallOfferView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(systemName: "waveform.and.mic").font(.title2).foregroundStyle(.purple)
+                Image(systemName: "waveform.and.mic").font(.title2).foregroundStyle(.purple).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.headline)
                     Text(message)

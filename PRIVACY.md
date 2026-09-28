@@ -17,8 +17,10 @@ telemetry. Nobody, including the developer, sees what you dictate or how you use
   - `~/Documents/Murmur Meetings/`: meeting transcripts and summaries.
   - A few preferences in macOS's own store (microphone choice, pill position, whether Dictation is on),
     and your dictation stats: how many words per day for the last 90 days, never the words themselves.
-- **Copy Diagnostics** puts settings and status on your clipboard only when you click it. It never
-  includes anything you dictated or your API keys.
+  - Murmur's last 20 error messages (what went wrong and when, never what you said), so Copy
+    Diagnostics can include them.
+- **Copy Diagnostics** puts settings, status and those recent errors on your clipboard only when you
+  click it. It never includes anything you dictated or your API keys.
 
 ## What goes over the network, and only when
 
@@ -45,7 +47,8 @@ whether a microphone is in use and which apps are running. It never starts recor
 
 ## Removing everything
 
-Quit Murmur, drag it from Applications to the Trash, and delete `~/.config/murmur` and, if you
-want, the two folders in Documents.
+**Settings… → About → Remove Murmur…** moves the app to the Trash and deletes its settings, API
+keys, speech models, preferences and permissions. Your Library and meeting notes in Documents stay;
+delete those two folders yourself if you want them gone too.
 
 Questions: open an issue at https://github.com/kadeclifton/notetaker/issues.

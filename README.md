@@ -420,6 +420,10 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
+**Beta releases.** A tag with a suffix, like `v0.2.2-beta.1`, is published as a pre-release. Only
+Macs with **Settings… → About → Updates** set to **Beta** are offered it; the download link and everyone
+else stay on the last full release. Test there, then tag `v0.2.2` for everyone.
+
 Each release has `Murmur-vX.dmg`, a disk image that opens as a window with the app and an
 Applications folder to drag it onto (for first installs), and `Murmur-vX.zip` (used by the in-app
 updater). Both are Apple Silicon, macOS 14+. `scripts/make-dmg.sh` builds the disk image locally
