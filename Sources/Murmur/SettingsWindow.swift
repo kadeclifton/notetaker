@@ -9,6 +9,9 @@ final class SettingsWindowController {
     let model: SettingsModel
     private var window: NSWindow?
 
+    /// Room for the sidebar plus the pages at their usual width.
+    static let size = CGSize(width: 740, height: 500)
+
     init(controller: DictationController) {
         model = SettingsModel(controller: controller)
     }
@@ -17,7 +20,7 @@ final class SettingsWindowController {
         if let tab { model.tab = tab }
         model.refresh()
         if window == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 460),
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.size),
                                   styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
             window.title = "Murmur Settings"
             window.contentView = NSHostingView(rootView: SettingsView(model: model))
@@ -195,17 +198,32 @@ final class SettingsModel: ObservableObject {
 private struct SettingsView: View {
     @ObservedObject var model: SettingsModel
 
+    /// A sidebar with every section named, like System Settings, rather than a tab bar whose icons
+    /// can end up folded behind a » button.
     var body: some View {
-        TabView(selection: $model.tab) {
-            GeneralTab(model: model).tabItem { Label("General", systemImage: SettingsTab.general.symbol) }.tag(SettingsTab.general)
-            SpeechTab(model: model).tabItem { Label("Speech", systemImage: SettingsTab.speech.symbol) }.tag(SettingsTab.speech)
-            WritingTab(model: model).tabItem { Label("Writing", systemImage: SettingsTab.writing.symbol) }.tag(SettingsTab.writing)
-            SnippetsTab(model: model).tabItem { Label("Snippets", systemImage: SettingsTab.snippets.symbol) }.tag(SettingsTab.snippets)
-            MeetingsTab(model: model).tabItem { Label("Meetings", systemImage: SettingsTab.meetings.symbol) }.tag(SettingsTab.meetings)
-            AboutTab(model: model).tabItem { Label("About", systemImage: SettingsTab.about.symbol) }.tag(SettingsTab.about)
+        HStack(spacing: 0) {
+            List(SettingsTab.allCases, id: \.self, selection: Binding(get: { model.tab }, set: { if let tab = $0 { model.tab = tab } })) { tab in
+                Label(tab.rawValue, systemImage: tab.symbol).tag(tab)
+            }
+            .listStyle(.sidebar)
+            .frame(width: 170)
+            Divider()
+            page
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .padding(20)
-        .frame(width: 560, height: 460)
+        .frame(width: SettingsWindowController.size.width, height: SettingsWindowController.size.height)
+    }
+
+    @ViewBuilder
+    private var page: some View {
+        switch model.tab {
+        case .general: GeneralTab(model: model)
+        case .speech: SpeechTab(model: model)
+        case .writing: WritingTab(model: model)
+        case .snippets: SnippetsTab(model: model)
+        case .meetings: MeetingsTab(model: model)
+        case .about: AboutTab(model: model)
+        }
     }
 }
 
@@ -517,6 +535,7 @@ private struct SnippetsTab: View {
                     .disabled(!model.snippetsChanged || model.snippetProblem != nil)
             }
         }
+        .padding(20)
     }
 }
 
