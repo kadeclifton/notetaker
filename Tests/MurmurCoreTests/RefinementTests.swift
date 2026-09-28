@@ -225,3 +225,21 @@ final class SelectionCopyTests: XCTestCase {
         XCTAssertFalse(SelectionCopy.accept("", bundleID: "com.apple.Notes"))
     }
 }
+
+final class ErrorLogTests: XCTestCase {
+    func testKeepsTheNewestTwentyWithoutDuplicatesOrHome() {
+        var log = ErrorLog()
+        let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+        for i in 0..<25 { log.add("Problem \(i)", at: t0 + Double(i)) }
+        XCTAssertEqual(log.entries.count, 20)
+        XCTAssertEqual(log.entries.first?.message, "Problem 24")
+        log.add("Problem 10", at: t0 + 100)
+        XCTAssertEqual(log.entries.count, 20)
+        XCTAssertEqual(log.entries.first?.message, "Problem 10")
+        log.add("Model missing at /Users/kade/.config/murmur/models/x.bin", at: t0, home: "/Users/kade")
+        XCTAssertEqual(log.entries.first?.message, "Model missing at ~/.config/murmur/models/x.bin")
+        XCTAssertEqual(log.lines(timeZone: TimeZone(identifier: "UTC")!).first, "2026-09-21 14:13  Model missing at ~/.config/murmur/models/x.bin")
+        log.add("   ")
+        XCTAssertEqual(log.entries.count, 20)
+    }
+}

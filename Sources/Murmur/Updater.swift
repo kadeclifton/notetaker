@@ -27,6 +27,7 @@ final class Updater {
     var onChange: (() -> Void)?
 
     private var repository = UpdatesConfig().repository
+    private var includeBetas = false
     private var timer: Timer?
     private var checking = false
 
@@ -50,6 +51,7 @@ final class Updater {
     /// Checks shortly after launch and then every six hours, if the settings allow it.
     func configure(_ config: UpdatesConfig) {
         repository = config.repository
+        includeBetas = config.betaUpdates
         timer?.invalidate()
         timer = nil
         guard config.checkAutomatically else { return }
@@ -74,7 +76,7 @@ final class Updater {
         let previous = state
         if userInitiated { set(.checking) }
         do {
-            let latest = try await UpdateChecker(repository: repository).latest()
+            let latest = try await UpdateChecker(repository: repository).latest(includeBetas: includeBetas)
             if UpdateChecker.isNewer(latest, than: currentVersion) {
                 // Already downloaded: keep it ready.
                 if case let .ready(release, _) = previous, release.tag == latest.tag {

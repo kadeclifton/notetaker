@@ -57,6 +57,8 @@ final class SetupWindowController {
         model.compose = controller.composerName
         model.localLLM = controller.localLLM.map { "\($0.server): \($0.models.joined(separator: ", "))" }
         model.launchAtLogin = LoginItem.isEnabled
+        model.tried = UserDefaults.standard.bool(forKey: DictationController.firstDictationKey)
+        model.lastIssue = controller.lastFailure
         if model.ready && !UserDefaults.standard.bool(forKey: "setupCompleted") {
             // First time everything works: start at login from now on (a switch below turns it
             // off), and show the cheat sheet once.
@@ -83,6 +85,10 @@ final class SetupModel: ObservableObject {
     @Published var compose = "off"
     @Published var localLLM: String?
     @Published var launchAtLogin = false
+    /// One dictation has gone in somewhere: everything works end to end.
+    @Published var tried = false
+    @Published var lastIssue: String?
+    @Published var tryText = ""
 
     var ready: Bool {
         (!usesLocalWhisper || (whisperInstalled && modelInstalled)) && microphone && accessibility && inputMonitoring
@@ -225,6 +231,26 @@ struct SetupView: View {
                 Button("Restart Murmur") { actions.relaunch() }
             }
 
+            if model.ready {
+                step(done: model.tried, title: "Try it",
+                     detail: model.tried
+                        ? "It works: your words went in. Hold \(model.hotkey) and talk in any app."
+                        : "Click in the box, hold \(model.hotkey), say a few words and let go. They should appear here.") {
+                    EmptyView()
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    TextField("Your words appear here", text: $model.tryText, axis: .vertical)
+                        .lineLimit(2...4)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Test box: dictate here to check Murmur works")
+                    if !model.tried, let issue = model.lastIssue {
+                        Text("What went wrong: " + issue).font(.caption).foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.leading, 30)
+            }
+
             if !(model.accessibility && model.inputMonitoring) {
                 Text("Already switched on in System Settings but still not ticked here? After an update the old switch no longer applies.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -313,6 +339,7 @@ struct SetupView: View {
             Image(systemName: done ? "checkmark.circle.fill" : "circle")
                 .foregroundStyle(done ? Color.green : Color.secondary)
                 .font(.title3)
+                .accessibilityLabel(done ? "Done" : "Not done yet")
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.subheadline.weight(.semibold))
                 Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

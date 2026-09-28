@@ -41,6 +41,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         // While a meeting records, the menu bar shows how long it has been going.
         statusItem.button?.title = controller.meeting.map { " " + MeetingTranscript.clock($0.elapsed) } ?? ""
         statusItem.button?.image = image
+        statusItem.button?.setAccessibilityLabel(controller.meeting != nil ? "Murmur, recording meeting notes"
+            : controller.isRecording ? "Murmur, listening" : "Murmur")
         statusItem.button?.imagePosition = .imageLeft
         statusItem.button?.toolTip = controller.enabled ? "Murmur: " + controller.modesDescription : "Murmur is off"
     }

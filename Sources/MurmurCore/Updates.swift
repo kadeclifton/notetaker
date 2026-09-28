@@ -3,21 +3,29 @@ import Foundation
 import FoundationNetworking
 #endif
 
-/// A release version like "0.1.3" (a leading "v" is fine). Compared number by number.
+/// A release version like "0.1.3" or "0.2.2-beta.1" (a leading "v" is fine). Numbers compare one
+/// by one; a pre-release (anything after "-") comes before its release: 0.2.2-beta.1 < 0.2.2-beta.2 < 0.2.2.
 public struct ReleaseVersion: Comparable, Sendable, CustomStringConvertible {
     public let parts: [Int]
+    /// "beta.1" → ["beta", "1"]; empty for a release.
+    public let prerelease: [String]
 
     public init?(_ string: String) {
         var text = string.trimmingCharacters(in: .whitespaces)
         if text.hasPrefix("v") || text.hasPrefix("V") { text.removeFirst() }
-        // "0.2.0-beta" compares as 0.2.0; releases here have no suffixes.
-        let core = text.split(separator: "-", maxSplits: 1).first.map(String.init) ?? text
+        let pieces = text.split(separator: "-", maxSplits: 1).map(String.init)
+        guard let core = pieces.first else { return nil }
         let parts = core.split(separator: ".").map { Int($0) }
         guard !parts.isEmpty, parts.allSatisfy({ $0 != nil }) else { return nil }
         self.parts = parts.compactMap { $0 }
+        prerelease = pieces.count > 1 ? pieces[1].split(separator: ".").map(String.init) : []
     }
 
-    public var description: String { parts.map(String.init).joined(separator: ".") }
+    public var isPrerelease: Bool { !prerelease.isEmpty }
+
+    public var description: String {
+        parts.map(String.init).joined(separator: ".") + (isPrerelease ? "-" + prerelease.joined(separator: ".") : "")
+    }
 
     public static func < (lhs: ReleaseVersion, rhs: ReleaseVersion) -> Bool {
         for i in 0..<max(lhs.parts.count, rhs.parts.count) {
@@ -25,7 +33,17 @@ public struct ReleaseVersion: Comparable, Sendable, CustomStringConvertible {
             let b = i < rhs.parts.count ? rhs.parts[i] : 0
             if a != b { return a < b }
         }
-        return false
+        // Same numbers: the pre-release is older; two pre-releases compare label by label.
+        switch (lhs.isPrerelease, rhs.isPrerelease) {
+        case (false, _): return false
+        case (true, false): return true
+        case (true, true):
+            for (a, b) in zip(lhs.prerelease, rhs.prerelease) where a != b {
+                if let x = Int(a), let y = Int(b) { return x < y }
+                return a < b
+            }
+            return lhs.prerelease.count < rhs.prerelease.count
+        }
     }
 
     public static func == (lhs: ReleaseVersion, rhs: ReleaseVersion) -> Bool { !(lhs < rhs) && !(rhs < lhs) }
@@ -68,10 +86,13 @@ public struct UpdateChecker: Sendable {
         self.client = client
     }
 
-    public func latest() async throws -> ReleaseInfo {
+    /// The newest release; with `includeBetas`, the newest of the recent releases including
+    /// pre-releases ("v0.2.2-beta.1"), for testing before everyone gets it.
+    public func latest(includeBetas: Bool = false) async throws -> ReleaseInfo {
         let parts = repository.split(separator: "/")
+        let path = includeBetas ? "releases?per_page=15" : "releases/latest"
         guard parts.count == 2, parts.allSatisfy({ !$0.isEmpty && !$0.contains(" ") }),
-              let url = URL(string: "https://api.github.com/repos/\(repository)/releases/latest") else {
+              let url = URL(string: "https://api.github.com/repos/\(repository)/\(path)") else {
             throw UpdateError.badRepository(repository)
         }
         var request = URLRequest(url: url)
@@ -83,7 +104,18 @@ public struct UpdateChecker: Sendable {
         guard (200..<300).contains(response.statusCode) else {
             throw APIError(service: "GitHub", status: response.statusCode, message: HTTP.errorMessage(from: data))
         }
-        return try Self.parse(data)
+        return includeBetas ? try Self.parseNewest(data) : try Self.parse(data)
+    }
+
+    /// The highest version among a release list, pre-releases included.
+    static func parseNewest(_ data: Data) throws -> ReleaseInfo {
+        guard let list = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { throw UpdateError.noRelease }
+        let releases = list.compactMap { item -> ReleaseInfo? in
+            guard let one = try? JSONSerialization.data(withJSONObject: item) else { return nil }
+            return try? parse(one, allowPrerelease: true)
+        }
+        guard let newest = releases.max(by: { $0.version < $1.version }) else { throw UpdateError.noRelease }
+        return newest
     }
 
     /// Whether `release` is newer than the running version.
@@ -92,7 +124,7 @@ public struct UpdateChecker: Sendable {
         return running < release.version
     }
 
-    static func parse(_ data: Data) throws -> ReleaseInfo {
+    static func parse(_ data: Data, allowPrerelease: Bool = false) throws -> ReleaseInfo {
         struct Release: Decodable {
             struct Asset: Decodable {
                 let name: String
@@ -106,7 +138,7 @@ public struct UpdateChecker: Sendable {
             let assets: [Asset]
         }
         let release = try JSONDecoder().decode(Release.self, from: data)
-        guard release.draft != true, release.prerelease != true,
+        guard release.draft != true, allowPrerelease || release.prerelease != true,
               let version = ReleaseVersion(release.tag_name) else { throw UpdateError.noRelease }
         // The workflow publishes "Murmur-<tag>.zip"; accept any Murmur zip in case it is renamed.
         let zips = release.assets.filter { $0.name.hasSuffix(".zip") && $0.name.lowercased().hasPrefix("murmur") }

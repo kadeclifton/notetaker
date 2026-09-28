@@ -58,7 +58,9 @@ final class DictationController {
     var problems: [String] { setupProblems + (pipelineProblem.map { [$0] } ?? []) }
     private var setupProblems: [String] = []
     private var pipelineProblem: String?
-    private(set) var lastFailure: String?
+    private(set) var lastFailure: String? {
+        didSet { if let lastFailure, lastFailure != oldValue { recordError(lastFailure) } }
+    }
     /// "0.4 s transcribe + 0.9 s cleanup (Ollama llama3.2:3b)", for the menu.
     private(set) var lastTiming: String?
     private(set) var transcriberName = "–"
@@ -608,6 +610,9 @@ final class DictationController {
         d.add("Last dictation", lastTiming)
         d.add("Problems", problems.joined(separator: " | "))
         d.add("Last issue", lastFailure)
+        let errors = errorLog.lines()
+        d.add("Recent errors", errors.isEmpty ? "none" : "\(errors.count), newest first")
+        for (index, line) in errors.enumerated() { d.add("  \(index + 1)", line) }
         return d.text
     }
 
@@ -735,6 +740,49 @@ final class DictationController {
         }
         Permissions.promptAccessibility()
         Permissions.requestInputMonitoring()
+    }
+
+    // MARK: Error log
+
+    /// Recent problems for Copy Diagnostics, on this Mac only (never dictated text).
+    private lazy var errorLog: ErrorLog = {
+        guard let data = UserDefaults.standard.data(forKey: "recentErrors"),
+              let log = try? JSONDecoder().decode(ErrorLog.self, from: data) else { return ErrorLog() }
+        return log
+    }()
+
+    private func recordError(_ message: String) {
+        errorLog.add(message)
+        if let data = try? JSONEncoder().encode(errorLog) { UserDefaults.standard.set(data, forKey: "recentErrors") }
+    }
+
+    // MARK: Remove Murmur
+
+    /// Everything Murmur put on this Mac, except what you made (the Library and meeting notes in
+    /// Documents): settings, API keys, speech models, preferences, permissions, the login item. Then
+    /// the app goes to the Trash and quits.
+    func removeMurmur() {
+        if meeting != nil {
+            stopMeeting(summarize: false) { [weak self] in self?.removeMurmur() }
+            return
+        }
+        cancelEverything()
+        WhisperServer.stopShared()
+        try? LoginItem.set(false)
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.github.kadeclifton.murmur"
+        for service in ["Accessibility", "ListenEvent", "ScreenCapture", "Microphone"] {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+            process.arguments = ["reset", service, bundleID]
+            try? process.run()
+            process.waitUntilExit()
+        }
+        try? FileManager.default.removeItem(at: AppPaths.directory)
+        UserDefaults.standard.removePersistentDomain(forName: bundleID)
+        Permissions.cancelReopen()
+        NSWorkspace.shared.recycle([Bundle.main.bundleURL]) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
     }
 
     /// Input Monitoring only takes effect in a freshly started process.
@@ -1159,8 +1207,12 @@ final class DictationController {
 
     private func noteInsertion(into pid: pid_t?) {
         lastInsertion = (pid, Date())
+        // The setup window's Try It step ticks once one dictation has gone in anywhere.
+        UserDefaults.standard.set(true, forKey: Self.firstDictationKey)
         onChange?()
     }
+
+    static let firstDictationKey = "firstDictationWorked"
 
     var canUndoLastDictation: Bool {
         guard let last = lastInsertion else { return false }

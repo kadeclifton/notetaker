@@ -74,6 +74,7 @@ private struct MeetingLiveView: View {
         VStack(spacing: 0) {
             HStack {
                 Circle().fill(model.recording ? Color.red : Color.secondary).frame(width: 9, height: 9)
+                    .accessibilityHidden(true)
                 Text(header).font(.headline)
                 Spacer()
                 if model.fileURL != nil { Button("Open Notes") { model.openFile() } }

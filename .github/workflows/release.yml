@@ -130,8 +130,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A tag with a suffix (v0.2.2-beta.1) is a pre-release: only Macs with "Get beta
+          # updates" on are offered it, and the Download link keeps pointing at the last release.
+          PRERELEASE=""
+          case "$GITHUB_REF_NAME" in *-*) PRERELEASE="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" "Murmur-$GITHUB_REF_NAME.dmg" "Murmur-$GITHUB_REF_NAME.zip" \
-            --title "Murmur $GITHUB_REF_NAME" --notes-file docs/INSTALL.md --verify-tag
+            --title "Murmur $GITHUB_REF_NAME" --notes-file docs/INSTALL.md --verify-tag $PRERELEASE
       - name: Remove the signing keychain
         if: always() && env.SIGNED == 'true'
         run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true

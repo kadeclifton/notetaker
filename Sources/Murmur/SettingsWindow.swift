@@ -318,6 +318,7 @@ private struct SpeechTab: View {
                         Text(word)
                         Spacer()
                         Button { c.removeVocabulary(word) } label: { Image(systemName: "minus.circle") }
+                            .accessibilityLabel("Remove \(word)")
                             .buttonStyle(.borderless)
                     }
                 }
@@ -467,12 +468,15 @@ private struct SnippetsTab: View {
                         HStack(alignment: .top) {
                             TextField("When I say…", text: $draft.say)
                                 .frame(width: 150)
+                                .accessibilityLabel("Phrase to say")
                             TextEditor(text: $draft.insert)
+                                .accessibilityLabel("Text to insert")
                                 .font(.body)
                                 .frame(height: 54)
                                 .scrollContentBackground(.hidden)
                                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.05)))
                             Button { model.removeSnippet(draft.id) } label: { Image(systemName: "minus.circle") }
+                                .accessibilityLabel(draft.say.isEmpty ? "Remove snippet" : "Remove snippet \(draft.say)")
                                 .buttonStyle(.borderless)
                         }
                     }
@@ -531,6 +535,7 @@ private struct MeetingsTab: View {
 
 private struct AboutTab: View {
     @ObservedObject var model: SettingsModel
+    @State private var confirmRemove = false
     private var c: DictationController { model.controller }
 
     var body: some View {
@@ -550,6 +555,15 @@ private struct AboutTab: View {
                 }
                 if case .upToDate = c.updater.state { Text("You have the latest version.").font(.caption).foregroundStyle(.secondary) }
                 if case let .failed(message) = c.updater.state { Text(message).font(.caption).foregroundStyle(.red) }
+                Toggle(isOn: Binding(get: { c.config.updates.betaUpdates }, set: { on in
+                    c.editSettings("updates", "betaUpdates", json: on ? "true" : "false") { $0.updates.betaUpdates == on }
+                })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Get beta updates")
+                        Text("Try new versions before everyone else. They may have rough edges.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
             Section {
                 HStack {
@@ -572,8 +586,20 @@ private struct AboutTab: View {
                     Text("Last issue: " + failure).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
             }
+            Section {
+                HStack {
+                    Button("Remove Murmur…", role: .destructive) { confirmRemove = true }
+                    Text("Deletes Murmur, its settings, API keys, speech models and permissions.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
         }
         .formStyle(.grouped)
+        .confirmationDialog("Remove Murmur from this Mac?", isPresented: $confirmRemove) {
+            Button("Remove Murmur", role: .destructive) { c.removeMurmur() }
+        } message: {
+            Text("Murmur moves to the Trash with its settings, API keys, speech models and permissions. Your Library and meeting notes in Documents stay.")
+        }
     }
 }
 #endif
