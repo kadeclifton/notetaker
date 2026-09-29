@@ -59,11 +59,10 @@ final class SystemAudioTap: CallAudioSource, @unchecked Sendable {
     private func startOnQueue() throws {
         guard procID == nil else { return }
         do {
-            let description = CATapDescription(stereoGlobalTapButExcludeProcesses: Self.ownProcessObject().map { [NSNumber(value: $0)] } ?? [])
+            let description = CATapDescription(stereoGlobalTapButExcludeProcesses: Self.ownProcessObject().map { [$0] } ?? [])
             description.uuid = UUID()
             description.name = "Murmur call audio"
             description.isPrivate = true
-            description.muteBehavior = .unmuted
             try check(AudioHardwareCreateProcessTap(description, &tapID), "tap")
 
             var formatAddress = AudioObjectPropertyAddress(mSelector: kAudioTapPropertyFormat,
