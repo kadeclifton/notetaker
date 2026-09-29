@@ -32,6 +32,8 @@
 	<string>public.app-category.productivity</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Murmur records your voice while you hold the dictation hotkey, so it can transcribe what you say.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Murmur records the call's audio during Meeting Notes, so the other people's words are in your notes.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>

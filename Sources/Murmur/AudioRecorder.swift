@@ -38,6 +38,15 @@ final class AudioRecorder: @unchecked Sendable {
     /// Everything recorded since the last call, without stopping. Meeting notes read the mic this way.
     func takeRecorded() -> [Float] { buffer.drain() }
 
+    /// For a whole meeting. When a call app switches the mic to voice processing (FaceTime does),
+    /// macOS reconfigures it and this engine stops delivering audio without any error. With this on,
+    /// the recorder starts again when that happens, or when no audio has come for a few seconds, and
+    /// fills the gap with silence so the transcript's times stay right. Set before `start`.
+    var keepsRunning = false
+    private var wantsRunning = false // only touched on `queue`
+    private var configObserver: NSObjectProtocol? // only touched on `queue`
+    private var watchdog: DispatchSourceTimer? // only touched on `queue`
+
     func start(completion: @escaping @MainActor (Error?) -> Void) {
         queue.async { [self] in
             // Reset on the queue, after any earlier stop() has drained its samples.
@@ -45,6 +54,8 @@ final class AudioRecorder: @unchecked Sendable {
             let error: Error?
             do {
                 try startOnQueue()
+                wantsRunning = keepsRunning
+                if keepsRunning { startWatchdog() }
                 error = nil
             } catch let failure {
                 error = failure
@@ -56,14 +67,44 @@ final class AudioRecorder: @unchecked Sendable {
     /// Stops the microphone and hands back everything recorded since `start`.
     func stop(completion: @escaping @MainActor ([Float]) -> Void) {
         queue.async { [self] in
-            if let engine {
-                engine.inputNode.removeTap(onBus: 0)
-                engine.stop()
-                self.engine = nil
-            }
+            wantsRunning = false
+            watchdog?.cancel()
+            watchdog = nil
+            stopEngine()
             let samples = buffer.drain()
             DispatchQueue.main.async { MainActor.assumeIsolated { completion(samples) } }
         }
+    }
+
+    private func stopEngine() {
+        if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+        configObserver = nil
+        if let engine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            self.engine = nil
+        }
+    }
+
+    /// Starts a fresh engine after the mic went quiet or was reconfigured, padding the gap.
+    private func restartOnQueue() {
+        guard wantsRunning else { return }
+        stopEngine()
+        buffer.padGap()
+        // If the mic cannot start yet (the call app still holds it), the watchdog tries again.
+        try? startOnQueue()
+    }
+
+    private func startWatchdog() {
+        guard watchdog == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 2, repeating: 2)
+        timer.setEventHandler { [weak self] in
+            guard let self, self.wantsRunning else { return }
+            if self.engine == nil || self.buffer.secondsSinceAppend > 3 { self.restartOnQueue() }
+        }
+        timer.resume()
+        watchdog = timer
     }
 
     private func startOnQueue() throws {
@@ -102,6 +143,13 @@ final class AudioRecorder: @unchecked Sendable {
             throw error
         }
         self.engine = engine
+        if keepsRunning {
+            configObserver = NotificationCenter.default.addObserver(
+                forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self] _ in
+                guard let self else { return }
+                self.queue.async { self.restartOnQueue() }
+            }
+        }
     }
 }
 
@@ -144,14 +192,32 @@ final class SampleBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private var samples: [Float] = []
     private var _level: Float = 0
+    private var lastAppend = DispatchTime.now()
 
     var level: Float { lock.withLock { _level } }
+
+    /// Seconds since audio last arrived (or since `reset`).
+    var secondsSinceAppend: Double {
+        lock.withLock { Double(DispatchTime.now().uptimeNanoseconds - lastAppend.uptimeNanoseconds) / 1e9 }
+    }
 
     func reset() {
         lock.withLock {
             samples = []
             samples.reserveCapacity(Audio.sampleRate * 60)
             _level = 0
+            lastAppend = .now()
+        }
+    }
+
+    /// Fills the time since audio last arrived with silence, so what follows lands at the right time.
+    func padGap() {
+        lock.withLock {
+            let seconds = Double(DispatchTime.now().uptimeNanoseconds - lastAppend.uptimeNanoseconds) / 1e9
+            if seconds > 0.1, seconds < 3600 {
+                samples.append(contentsOf: repeatElement(0, count: Int(seconds * Double(Audio.sampleRate))))
+            }
+            lastAppend = .now()
         }
     }
 
@@ -162,6 +228,7 @@ final class SampleBuffer: @unchecked Sendable {
         lock.withLock {
             samples.append(contentsOf: chunk)
             _level = max(normalized, _level * 0.6)
+            lastAppend = .now()
         }
     }
 

@@ -731,7 +731,7 @@ final class DictationController {
     /// previous build. Clearing Murmur's entries lets macOS ask again for this build.
     func resetPermissions() {
         let bundleID = Bundle.main.bundleIdentifier ?? "com.github.kadeclifton.murmur"
-        for service in ["Accessibility", "ListenEvent", "ScreenCapture"] {
+        for service in ["Accessibility", "ListenEvent", "ScreenCapture", "AudioCapture"] {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
             process.arguments = ["reset", service, bundleID]
@@ -770,7 +770,7 @@ final class DictationController {
         WhisperServer.stopShared()
         try? LoginItem.set(false)
         let bundleID = Bundle.main.bundleIdentifier ?? "com.github.kadeclifton.murmur"
-        for service in ["Accessibility", "ListenEvent", "ScreenCapture", "Microphone"] {
+        for service in ["Accessibility", "ListenEvent", "ScreenCapture", "AudioCapture", "Microphone"] {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
             process.arguments = ["reset", service, bundleID]

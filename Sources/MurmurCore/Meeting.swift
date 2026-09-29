@@ -110,7 +110,7 @@ public enum MeetingNoise {
         case .others:
             return "The call's audio was silent during this meeting, so the other people are missing. If they "
                 + "spoke, check that Murmur is allowed in System Settings → Privacy & Security → Screen & System "
-                + "Audio Recording (turn it off and on again after an update), then restart Murmur."
+                + "Audio Recording, in both lists (turn it off and on again after an update), then restart Murmur."
         }
     }
 }

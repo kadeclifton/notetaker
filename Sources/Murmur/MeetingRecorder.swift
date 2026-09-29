@@ -19,7 +19,7 @@ final class MeetingRecorder {
     let startedAt = Date()
     private let setup: Setup
     private let mic = AudioRecorder()
-    private var system: SystemAudioCapture?
+    private var system: CallAudioSource?
     private var micChunker: AudioChunker
     private var systemChunker: AudioChunker
     private var transcript = MeetingTranscript()
@@ -61,15 +61,17 @@ final class MeetingRecorder {
     }
 
     private func begin() async throws {
+        // A call app switching the mic to voice processing (FaceTime does) silently stops a
+        // recording; for a whole meeting, the recorder notices and starts again.
+        mic.keepsRunning = true
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             mic.start { error in
                 if let error { continuation.resume(throwing: error) } else { continuation.resume() }
             }
         }
         if setup.config.captureSystemAudio {
-            let capture = SystemAudioCapture()
             do {
-                try await capture.start()
+                let capture = try await Self.startCallAudio()
                 capture.onStop = { [weak self] error in
                     Task { @MainActor [weak self] in
                         self?.warnings.append("Call audio stopped: \(error.localizedDescription)")
@@ -88,6 +90,23 @@ final class MeetingRecorder {
         pumpTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.pump() }
         }
+    }
+
+    /// A Core Audio tap where there is one (it also hears FaceTime and iPhone calls, which
+    /// ScreenCaptureKit cannot), else ScreenCaptureKit.
+    private static func startCallAudio() async throws -> CallAudioSource {
+        if #available(macOS 14.2, *) {
+            let tap = SystemAudioTap()
+            do {
+                try await tap.start()
+                return tap
+            } catch {
+                // Fall through to ScreenCaptureKit, which may still work.
+            }
+        }
+        let capture = SystemAudioCapture()
+        try await capture.start()
+        return capture
     }
 
     private func pump() {
