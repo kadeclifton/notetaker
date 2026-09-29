@@ -28,6 +28,8 @@ final class MeetingRecorder {
     private var queueTail: Task<Void, Never>?
     private var pendingPieces = 0
     private(set) var warnings: [String] = []
+    /// The loudest moment heard from each side so far, to warn when one stayed silent throughout.
+    private var loudest: [Speaker: Float] = [:]
     /// What has been transcribed so far, for the live window.
     var liveTranscript: MeetingTranscript { transcript }
     /// Pieces recorded but not transcribed yet.
@@ -101,8 +103,10 @@ final class MeetingRecorder {
     }
 
     private func enqueue(_ chunk: AudioChunk, speaker: Speaker) {
+        let level = Audio.loudest(chunk.samples)
+        loudest[speaker] = max(loudest[speaker] ?? 0, level)
         guard !Audio.isSilent(chunk.samples) else { return }
-        lastSpeech = Date()
+        if level >= MeetingNoise.quiet { lastSpeech = Date() }
         let previous = queueTail
         let transcriber = setup.transcriber
         let language = setup.language
@@ -121,7 +125,8 @@ final class MeetingRecorder {
             self.pendingPieces -= 1
             switch result {
             case let .success(segments):
-                self.transcript.add(segments, chunkStart: chunk.start, speaker: speaker)
+                let heard = segments.filter { !MeetingNoise.isInvented($0.text, loudest: level) }
+                self.transcript.add(heard, chunkStart: chunk.start, speaker: speaker)
             case let .failure(error):
                 self.warnings.append("Could not transcribe \(speaker.rawValue) at \(MeetingTranscript.clock(chunk.start)): \(error)")
             }
@@ -144,6 +149,15 @@ final class MeetingRecorder {
             for chunk in systemChunker.append(system.takeRecorded()) { enqueue(chunk, speaker: .others) }
             if let chunk = systemChunker.flush() { enqueue(chunk, speaker: .others) }
             self.system = nil
+        }
+
+        let minutes = elapsed / 60
+        if let note = MeetingNoise.warning(for: .me, loudest: loudest[.me], device: mic.deviceName, minutes: minutes) {
+            warnings.append(note)
+        }
+        if setup.config.captureSystemAudio, !warnings.contains(where: { $0.hasPrefix("Call audio") }),
+           let note = MeetingNoise.warning(for: .others, loudest: loudest[.others], device: nil, minutes: minutes) {
+            warnings.append(note)
         }
 
         if pendingPieces > 0 { progress("Transcribing the last \(pendingPieces == 1 ? "piece" : "\(pendingPieces) pieces")…") }

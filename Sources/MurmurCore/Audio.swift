@@ -85,19 +85,25 @@ public enum Audio {
         return Array(samples[from..<to])
     }
 
-    /// Brings quiet speech (a webcam or display mic across the room) up to a level Whisper hears
-    /// well: the loudest 50 ms window is raised to about -20 dBFS, at most 20× (+26 dB), without
-    /// clipping. Speech that is already loud enough is returned unchanged.
-    public static func boosted(_ samples: [Float], sampleRate: Int = Audio.sampleRate) -> [Float] {
+    /// The RMS of the loudest 50 ms window: how loud the loudest moment is, ignoring single clicks.
+    public static func loudest(_ samples: [Float], sampleRate: Int = Audio.sampleRate) -> Float {
         let window = max(1, sampleRate / 20)
         var loudest: Float = 0
-        var peak: Float = 0
         var start = 0
         while start < samples.count {
             let end = min(samples.count, start + window)
             loudest = max(loudest, rms(samples[start..<end]))
             start = end
         }
+        return loudest
+    }
+
+    /// Brings quiet speech (a webcam or display mic across the room) up to a level Whisper hears
+    /// well: the loudest 50 ms window is raised to about -20 dBFS, at most 20× (+26 dB), without
+    /// clipping. Speech that is already loud enough is returned unchanged.
+    public static func boosted(_ samples: [Float], sampleRate: Int = Audio.sampleRate) -> [Float] {
+        let loudest = loudest(samples, sampleRate: sampleRate)
+        var peak: Float = 0
         for s in samples { peak = max(peak, abs(s)) }
         let target: Float = 0.1
         guard loudest > 0, loudest < target / 2, peak > 0 else { return samples }
