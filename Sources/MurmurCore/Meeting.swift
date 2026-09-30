@@ -74,6 +74,47 @@ public struct AudioChunker: Sendable {
     }
 }
 
+// MARK: - Noise
+
+/// Whisper fills near-silent audio with polite filler ("Thank you." again and again), and a meeting
+/// has long quiet stretches: pieces with a little room noise or a faint sound get past the silence
+/// check and come back as that. Such text is dropped when the piece was too quiet to be speech.
+public enum MeetingNoise {
+    /// A piece whose loudest 50 ms stays under this (about -40 dBFS) holds no speech meant to be heard.
+    public static let quiet: Float = 0.01
+
+    static let fillers: Set<String> = [
+        "thank you", "thanks", "thank you very much", "thank you so much", "thanks for watching",
+        "bye", "bye bye", "bye-bye", "you", "okay", "ok", "so", "oh", "hmm", "mm",
+    ]
+
+    /// True when `text` is only filler and the piece it came from was quiet.
+    public static func isInvented(_ text: String, loudest: Float) -> Bool {
+        guard loudest < quiet else { return false }
+        let sentences = text.lowercased()
+            .split(whereSeparator: { ".!?,…".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return sentences.allSatisfy(fillers.contains)
+    }
+
+    /// A note for the meeting file when one side stayed quiet for the whole meeting, or nil.
+    /// `loudest` is the loudest moment heard from that side, nil if it recorded nothing at all.
+    public static func warning(for speaker: Speaker, loudest: Float?, device: String?, minutes: Double) -> String? {
+        guard minutes >= 2, (loudest ?? 0) < quiet else { return nil }
+        switch speaker {
+        case .me:
+            let mic = device.map { "“\($0)”" } ?? "The microphone"
+            return "\(mic) picked up no speech during this meeting. If you talked, check its input level in "
+                + "System Settings → Sound → Input, or pick another in Settings → Speech → Microphone."
+        case .others:
+            return "The call's audio was silent during this meeting, so the other people are missing. If they "
+                + "spoke, check that Murmur is allowed in System Settings → Privacy & Security → Screen & System "
+                + "Audio Recording, in both lists (turn it off and on again after an update), then restart Murmur."
+        }
+    }
+}
+
 // MARK: - Transcript
 
 public struct MeetingSegment: Sendable, Equatable {

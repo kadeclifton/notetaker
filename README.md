@@ -93,7 +93,7 @@ macOS asks for three permissions. Murmur can't work without them, and the menu s
 | **Microphone** | System Settings → Privacy & Security → Microphone | Record your voice while the hotkey is held. macOS prompts on first launch. |
 | **Input Monitoring** | System Settings → Privacy & Security → Input Monitoring | See the hotkey and Esc while other apps have focus. Murmur only listens for those keys; nothing is logged or stored. |
 | **Accessibility** | System Settings → Privacy & Security → Accessibility | Send Cmd-V (or keystrokes) into the focused app. Also needed if your hotkey is a shortcut like `ctrl+option+space`, so Murmur can stop it from typing a space. |
-| **Screen & System Audio Recording** | System Settings → Privacy & Security → Screen & System Audio Recording | Meeting Notes only: record the call's audio (what the other people say). macOS asks the first time you start Meeting Notes. Murmur records audio only; it never saves the screen. Not needed if `meeting.captureSystemAudio` is off. |
+| **Screen & System Audio Recording** | System Settings → Privacy & Security → Screen & System Audio Recording | Meeting Notes only: record the call's audio (what the other people say). macOS asks the first time you start Meeting Notes; on macOS 14.2 and later Murmur appears under **System Audio Recording Only**. Murmur records audio only; it never saves the screen. Not needed if `meeting.captureSystemAudio` is off. |
 
 After granting **Input Monitoring** or **Accessibility**, quit and reopen Murmur. macOS often
 only applies these to a freshly started process.
@@ -404,7 +404,7 @@ hotkey (CGEventTap) ─► state machine ─► AVAudioEngine @16 kHz ─► WAV
   hold / double-tap / hands-free / Esc state machine, WAV encoding, the Whisper and LLM clients,
   and the pipeline. Builds and tests on Linux as well.
 - `Sources/Murmur`: the macOS app: event tap, microphone, text insertion, pill, menu bar,
-  permissions, launch at login, and Meeting Notes (ScreenCaptureKit for the call's audio).
+  permissions, launch at login, and Meeting Notes (a Core Audio tap for the call's audio on macOS 14.2+, which also hears FaceTime and iPhone calls; ScreenCaptureKit before that).
 
 Meeting Notes runs the mic and the call's audio side by side: each is cut into ~30 s pieces at
 pauses, transcribed with timestamps, merged into one transcript, then summarized. Long meetings are
@@ -488,7 +488,7 @@ Logs go to the unified log: `log stream --predicate 'process == "Murmur"'`.
   and rebuild, `brew install whisper-cpp`, or set `transcription.whisperCpp.binary`.
 - **"Whisper model not found".** `scripts/download-model.sh small.en`.
 - **Nothing is inserted into a password field.** macOS blocks synthetic input into secure fields, by design.
-- **Meeting notes only have "Me".** Grant Screen & System Audio Recording, then quit and reopen Murmur.
+- **Meeting notes only have "Me".** Grant Screen & System Audio Recording (on macOS 14.2+, the System Audio Recording Only list), then quit and reopen Murmur. The notes say when the call's audio or your mic stayed silent for the whole meeting.
   The notes file says so at the top when call audio wasn't recorded.
 - **"No summary: no language model was found".** Start Ollama (`ollama serve`) or LM Studio's server,
   or add an API key. The menu's "Meeting summaries" line shows what will be used.

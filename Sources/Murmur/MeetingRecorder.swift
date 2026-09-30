@@ -19,7 +19,7 @@ final class MeetingRecorder {
     let startedAt = Date()
     private let setup: Setup
     private let mic = AudioRecorder()
-    private var system: SystemAudioCapture?
+    private var system: CallAudioSource?
     private var micChunker: AudioChunker
     private var systemChunker: AudioChunker
     private var transcript = MeetingTranscript()
@@ -28,6 +28,8 @@ final class MeetingRecorder {
     private var queueTail: Task<Void, Never>?
     private var pendingPieces = 0
     private(set) var warnings: [String] = []
+    /// The loudest moment heard from each side so far, to warn when one stayed silent throughout.
+    private var loudest: [Speaker: Float] = [:]
     /// What has been transcribed so far, for the live window.
     var liveTranscript: MeetingTranscript { transcript }
     /// Pieces recorded but not transcribed yet.
@@ -59,15 +61,17 @@ final class MeetingRecorder {
     }
 
     private func begin() async throws {
+        // A call app switching the mic to voice processing (FaceTime does) silently stops a
+        // recording; for a whole meeting, the recorder notices and starts again.
+        mic.keepsRunning = true
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             mic.start { error in
                 if let error { continuation.resume(throwing: error) } else { continuation.resume() }
             }
         }
         if setup.config.captureSystemAudio {
-            let capture = SystemAudioCapture()
             do {
-                try await capture.start()
+                let capture = try await Self.startCallAudio()
                 capture.onStop = { [weak self] error in
                     Task { @MainActor [weak self] in
                         self?.warnings.append("Call audio stopped: \(error.localizedDescription)")
@@ -88,6 +92,23 @@ final class MeetingRecorder {
         }
     }
 
+    /// A Core Audio tap where there is one (it also hears FaceTime and iPhone calls, which
+    /// ScreenCaptureKit cannot), else ScreenCaptureKit.
+    private static func startCallAudio() async throws -> CallAudioSource {
+        if #available(macOS 14.2, *) {
+            let tap = SystemAudioTap()
+            do {
+                try await tap.start()
+                return tap
+            } catch {
+                // Fall through to ScreenCaptureKit, which may still work.
+            }
+        }
+        let capture = SystemAudioCapture()
+        try await capture.start()
+        return capture
+    }
+
     private func pump() {
         for chunk in micChunker.append(mic.takeRecorded()) { enqueue(chunk, speaker: .me) }
         if let system {
@@ -101,8 +122,10 @@ final class MeetingRecorder {
     }
 
     private func enqueue(_ chunk: AudioChunk, speaker: Speaker) {
+        let level = Audio.loudest(chunk.samples)
+        loudest[speaker] = max(loudest[speaker] ?? 0, level)
         guard !Audio.isSilent(chunk.samples) else { return }
-        lastSpeech = Date()
+        if level >= MeetingNoise.quiet { lastSpeech = Date() }
         let previous = queueTail
         let transcriber = setup.transcriber
         let language = setup.language
@@ -121,7 +144,8 @@ final class MeetingRecorder {
             self.pendingPieces -= 1
             switch result {
             case let .success(segments):
-                self.transcript.add(segments, chunkStart: chunk.start, speaker: speaker)
+                let heard = segments.filter { !MeetingNoise.isInvented($0.text, loudest: level) }
+                self.transcript.add(heard, chunkStart: chunk.start, speaker: speaker)
             case let .failure(error):
                 self.warnings.append("Could not transcribe \(speaker.rawValue) at \(MeetingTranscript.clock(chunk.start)): \(error)")
             }
@@ -144,6 +168,15 @@ final class MeetingRecorder {
             for chunk in systemChunker.append(system.takeRecorded()) { enqueue(chunk, speaker: .others) }
             if let chunk = systemChunker.flush() { enqueue(chunk, speaker: .others) }
             self.system = nil
+        }
+
+        let minutes = elapsed / 60
+        if let note = MeetingNoise.warning(for: .me, loudest: loudest[.me], device: mic.deviceName, minutes: minutes) {
+            warnings.append(note)
+        }
+        if setup.config.captureSystemAudio, !warnings.contains(where: { $0.hasPrefix("Call audio") }),
+           let note = MeetingNoise.warning(for: .others, loudest: loudest[.others], device: nil, minutes: minutes) {
+            warnings.append(note)
         }
 
         if pendingPieces > 0 { progress("Transcribing the last \(pendingPieces == 1 ? "piece" : "\(pendingPieces) pieces")…") }

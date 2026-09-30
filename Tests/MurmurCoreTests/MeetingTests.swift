@@ -158,3 +158,34 @@ final class MeetingSummarizerTests: XCTestCase {
         XCTAssertEqual(notes, "")
     }
 }
+
+final class MeetingNoiseTests: XCTestCase {
+    func testLoudest() {
+        let quietThenLoud = [Float](repeating: 0.001, count: 16_000) + [Float](repeating: 0.2, count: 800)
+        XCTAssertEqual(Audio.loudest(quietThenLoud), 0.2, accuracy: 0.001)
+        XCTAssertEqual(Audio.loudest([]), 0)
+    }
+
+    func testFillerFromQuietPiecesIsDropped() {
+        XCTAssertTrue(MeetingNoise.isInvented("Thank you.", loudest: 0.004))
+        XCTAssertTrue(MeetingNoise.isInvented("Thank you. Thank you.", loudest: 0.004))
+        XCTAssertTrue(MeetingNoise.isInvented(" Bye! ", loudest: 0.004))
+        XCTAssertTrue(MeetingNoise.isInvented("", loudest: 0.004))
+    }
+
+    func testRealSpeechIsKept() {
+        // Said out loud, "thank you" is real.
+        XCTAssertFalse(MeetingNoise.isInvented("Thank you.", loudest: 0.08))
+        // Anything beyond filler is kept even from a quiet piece.
+        XCTAssertFalse(MeetingNoise.isInvented("Thank you, see you Thursday.", loudest: 0.004))
+        XCTAssertFalse(MeetingNoise.isInvented("Let's ship it.", loudest: 0.004))
+    }
+
+    func testWarningsWhenASideStaysSilent() {
+        let mic = MeetingNoise.warning(for: .me, loudest: 0.0005, device: "MacBook Pro Microphone", minutes: 23)
+        XCTAssertEqual(mic?.hasPrefix("“MacBook Pro Microphone” picked up no speech"), true)
+        XCTAssertNotNil(MeetingNoise.warning(for: .others, loudest: nil, device: nil, minutes: 23))
+        XCTAssertNil(MeetingNoise.warning(for: .others, loudest: 0.12, device: nil, minutes: 23), "heard them")
+        XCTAssertNil(MeetingNoise.warning(for: .me, loudest: 0, device: nil, minutes: 1), "too short to judge")
+    }
+}
