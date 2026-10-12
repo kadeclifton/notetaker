@@ -134,8 +134,10 @@ jobs:
           # Beta are offered it, and the Download link keeps pointing at the last release.
           PRERELEASE=""
           case "$GITHUB_REF_NAME" in *-*) PRERELEASE="--prerelease" ;; esac
+          # What's new (from CHANGELOG.md) above the install guide; the update menu shows the list.
+          python3 scripts/release-notes.py "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
           gh release create "$GITHUB_REF_NAME" "Murmur-$GITHUB_REF_NAME.dmg" "Murmur-$GITHUB_REF_NAME.zip" \
-            --title "Murmur $GITHUB_REF_NAME" --notes-file docs/INSTALL.md --verify-tag $PRERELEASE
+            --title "Murmur $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag $PRERELEASE
       - name: Remove the signing keychain
         if: always() && env.SIGNED == 'true'
         run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true

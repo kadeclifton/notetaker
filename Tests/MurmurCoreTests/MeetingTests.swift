@@ -189,3 +189,30 @@ final class MeetingNoiseTests: XCTestCase {
         XCTAssertNil(MeetingNoise.warning(for: .me, loudest: 0, device: nil, minutes: 1), "too short to judge")
     }
 }
+
+final class ShareableSummaryTests: XCTestCase {
+    func testSummaryAsPlainText() throws {
+        let text = MeetingNotes.markdown(title: "Meeting, Sep 30, 2026 at 9:00 AM", details: "**Length:** 20 min",
+                                         summary: "### Summary\n- Ship 0.2.3 Friday.\n\n### Action items\n- Kade: tag it.",
+                                         transcript: MeetingTranscript())
+        let file = try XCTUnwrap(MeetingFile.parse(text, url: URL(fileURLWithPath: "/tmp/m.md"), fallbackDate: Date()))
+        XCTAssertEqual(file.shareableSummary, """
+        Meeting, Sep 30, 2026 at 9:00 AM
+
+        Summary:
+        - Ship 0.2.3 Friday.
+
+        Action items:
+        - Kade: tag it.
+
+        """)
+    }
+
+    func testNoSummaryNoCopy() throws {
+        let unfinished = MeetingNotes.markdown(title: "Meeting", details: "", summary: nil, transcript: MeetingTranscript())
+        XCTAssertNil(MeetingFile.parse(unfinished, url: URL(fileURLWithPath: "/tmp/a.md"), fallbackDate: Date())?.shareableSummary)
+        let failed = MeetingNotes.markdown(title: "Meeting", details: "", summary: "_The summary failed: timeout._",
+                                           transcript: MeetingTranscript())
+        XCTAssertNil(MeetingFile.parse(failed, url: URL(fileURLWithPath: "/tmp/b.md"), fallbackDate: Date())?.shareableSummary)
+    }
+}

@@ -134,7 +134,7 @@ Click the wave in the menu bar:
 
 - **Status line**: "Ready", or **⚠️ Finish Setup…** when something needs fixing (click it).
 - **Dictation** (⌘E): on/off.
-- **Start Meeting Notes** (⌘M); while recording, **Live Transcript…**.
+- **Start Meeting Notes** (⌘M in the menu, ⌃⌥M anywhere); while recording, **Live Transcript…**.
 - **Library…** (⌘L): everything Compose has written, and every meeting's notes.
 - **Recent**: **Undo Last Dictation**, then the last 10 dictations and composes, click to copy again
   (kept in memory only).
@@ -160,6 +160,7 @@ Click the wave in the menu bar:
 | Hold fn⌃⌥, talk, release | Compose: a preview panel writes it up; ⏎ inserts, Esc closes |
 | Select text, hold fn⇧, say what to change | Edit: the selection is rewritten and replaced (uses the Compose model) |
 | ⌃⌥V anywhere | Paste your last dictation again (`insertion.pasteLastShortcut`) |
+| ⌃⌥M anywhere | Start Meeting Notes; again to stop and summarize (`meeting.shortcut`) |
 | Double-tap the hotkey | Hands-free recording starts (pill shows 🔒 Hands-free) |
 | Tap the hotkey during hands-free | Stop, transcribe, insert |
 | Esc while recording | Discard the recording |
@@ -412,8 +413,10 @@ summarized part by part first, so they fit a local model's context window.
 
 ## Releases (sharing with friends)
 
-Pushing a version tag builds Murmur on GitHub's macOS runners and publishes it as a release, with
-[docs/INSTALL.md](docs/INSTALL.md) as the release notes:
+Pushing a version tag builds Murmur on GitHub's macOS runners and publishes it as a release. The
+notes are that version's list from [CHANGELOG.md](CHANGELOG.md) (add a `## 0.2.3` section before
+tagging) followed by [docs/INSTALL.md](docs/INSTALL.md); `scripts/release-notes.py v0.2.3` shows
+them. Murmur's update menu lists the bold lead of each bullet under **What's New**.
 
 ```sh
 git tag v0.1.0

@@ -135,6 +135,8 @@ public struct TimingConfig: Codable, Equatable, Sendable {
 public struct MeetingConfig: Codable, Equatable, Sendable {
     /// Where meeting notes are saved, one Markdown file per meeting.
     public var folder: String = "~/Documents/Murmur Meetings"
+    /// Starts or stops Meeting Notes from anywhere, like "ctrl+option+m". "" turns it off.
+    public var shortcut: String = "ctrl+option+m"
     /// Record the call's audio (everyone else) as well as your microphone. Needs the
     /// Screen & System Audio Recording permission.
     public var captureSystemAudio: Bool = true
@@ -355,6 +357,8 @@ extension Config {
       // transcribes as it goes, and writes a summary when you stop.
       "meeting": {
         "folder": "~/Documents/Murmur Meetings",
+        // Start or stop Meeting Notes from anywhere. "" turns it off.
+        "shortcut": "ctrl+option+m",
         // Also record what others say (the audio playing on this Mac). Needs the
         // Screen & System Audio Recording permission. false: your microphone only.
         "captureSystemAudio": true,

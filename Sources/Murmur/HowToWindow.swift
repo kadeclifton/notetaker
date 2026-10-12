@@ -46,6 +46,7 @@ private struct HowToView: View {
                 row("Double-tap \(hotkey)", "Hands-free: keep talking with nothing held. Tap \(hotkey) again to finish.")
                 row("Esc", "Cancel a recording, or stop one that's still being transcribed.")
                 row("⌃⌥V", "Paste your last dictation again, anywhere.")
+                row("⌃⌥M", "Start Meeting Notes from anywhere; press it again to stop and write the summary.")
                 row("\"New line\"", "Say \"new line\" or \"new paragraph\" to break lines while you dictate.")
                 row("\"Scratch that\"", "Say it on its own to undo the last dictation; end a sentence with it to drop that one.")
                 row("Snippets", "Say a phrase like \"my email\" and saved text goes in instead. Set them in Settings.")

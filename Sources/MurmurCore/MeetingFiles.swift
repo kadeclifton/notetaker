@@ -39,6 +39,19 @@ public struct MeetingFile: Identifiable, Equatable, Sendable {
         return formatter.date(from: digits)
     }
 
+    /// The title and summary as plain text to paste into a message or an email ("### Decisions"
+    /// becomes "Decisions:"). Nil while there is no summary, or when it only says why there is none.
+    public var shareableSummary: String? {
+        guard !summary.isEmpty, !summary.hasPrefix("_") else { return nil }
+        let body = summary.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            let text = String(line)
+            guard text.hasPrefix("#") else { return text }
+            let heading = text.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
+            return heading.isEmpty ? "" : heading + ":"
+        }
+        return title + "\n\n" + body.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines) + "\n"
+    }
+
     /// Words of the whole file, for search.
     public func matches(_ query: String) -> Bool {
         let q = query.trimmingCharacters(in: .whitespaces)

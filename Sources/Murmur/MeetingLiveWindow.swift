@@ -43,12 +43,19 @@ final class MeetingLiveModel: ObservableObject {
     @Published private(set) var pending = 0
     @Published private(set) var status: String?
     @Published private(set) var recording = false
+    /// The finished meeting's summary to copy, once it is written.
+    @Published private(set) var summary: String?
+    private var summaryRead = false
     private(set) var fileURL: URL?
 
     func refresh() {
         guard let controller else { return }
         status = controller.meetingStatus
         if let meeting = controller.meeting {
+            if meeting.fileURL != fileURL {
+                summary = nil
+                summaryRead = false
+            }
             recording = true
             let latest = meeting.liveTranscript.turns()
             if latest != turns { turns = latest }
@@ -57,6 +64,11 @@ final class MeetingLiveModel: ObservableObject {
             fileURL = meeting.fileURL
         } else {
             recording = false
+            // Once the meeting has finished writing (no status left), read its summary once.
+            if !summaryRead, status == nil, let fileURL, let text = try? String(contentsOf: fileURL, encoding: .utf8) {
+                summaryRead = true
+                summary = MeetingFile.parse(text, url: fileURL, fallbackDate: Date())?.shareableSummary
+            }
         }
     }
 
@@ -77,6 +89,7 @@ private struct MeetingLiveView: View {
                     .accessibilityHidden(true)
                 Text(header).font(.headline)
                 Spacer()
+                if model.summary != nil { CopyButton(title: "Copy Summary", text: model.summary) }
                 if model.fileURL != nil { Button("Open Notes") { model.openFile() } }
                 if model.recording && model.status == nil { Button("Stop") { model.stop() } }
             }

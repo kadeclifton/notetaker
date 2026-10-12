@@ -44,6 +44,7 @@ final class DictationController {
     private let library = LibraryWindowController()
     private let callWatcher = CallWatcher()
     private let pasteLastShortcut = GlobalShortcut()
+    private let meetingShortcut = GlobalShortcut()
 
     /// Transcriptions in flight. Each waits for the one before it before inserting, so text
     /// lands in the order it was dictated even when a later, shorter clip finishes first.
@@ -183,6 +184,10 @@ final class DictationController {
         if !pasteLastShortcut.register(shortcut, action: { [weak self] in self?.pasteLastAgain() }), !shortcut.isEmpty {
             setupProblems.append("insertion.pasteLastShortcut \"\(shortcut)\" is not a shortcut Murmur can use (it needs ⌃, ⌥ or ⌘ and a key, and no other app may own it).")
         }
+        let meetingKeys = config.meeting.shortcut
+        if !meetingShortcut.register(meetingKeys, action: { [weak self] in self?.toggleMeeting() }), !meetingKeys.isEmpty {
+            setupProblems.append("meeting.shortcut \"\(meetingKeys)\" is not a shortcut Murmur can use (it needs ⌃, ⌥ or ⌘ and a key, and no other app may own it).")
+        }
         onChange?()
     }
 
@@ -278,6 +283,17 @@ final class DictationController {
             self.meetingStatus = nil
             self.onChange?()
         }
+    }
+
+    /// The Meeting Notes shortcut: starts notes, or stops and summarizes the meeting being recorded.
+    func toggleMeeting() {
+        guard meetingStatus == nil else { return }
+        if meeting != nil { stopMeeting() } else { startMeeting() }
+    }
+
+    /// "⌃⌥M", or nil when meeting.shortcut is off.
+    var meetingShortcutName: String? {
+        (try? HotkeySpec.parse(config.meeting.shortcut))?.displayName
     }
 
     func stopMeeting(summarize: Bool = true, then: (@MainActor () -> Void)? = nil) {
