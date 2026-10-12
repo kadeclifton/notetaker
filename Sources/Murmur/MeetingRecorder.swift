@@ -13,6 +13,8 @@ final class MeetingRecorder {
         var language: String?
         var prompt: String?
         var summarizer: ChatModel?
+        /// "Always write X as Y", as for dictation.
+        var corrections: [Correction] = []
     }
 
     let fileURL: URL
@@ -144,7 +146,9 @@ final class MeetingRecorder {
             self.pendingPieces -= 1
             switch result {
             case let .success(segments):
+                let corrections = self.setup.corrections
                 let heard = segments.filter { !MeetingNoise.isInvented($0.text, loudest: level) }
+                    .map { TimedText(start: $0.start, end: $0.end, text: Corrections.apply(corrections, to: $0.text)) }
                 self.transcript.add(heard, chunkStart: chunk.start, speaker: speaker)
             case let .failure(error):
                 self.warnings.append("Could not transcribe \(speaker.rawValue) at \(MeetingTranscript.clock(chunk.start)): \(error)")

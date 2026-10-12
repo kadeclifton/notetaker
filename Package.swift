@@ -22,6 +22,7 @@ let package = Package(
                 .linkedFramework("ServiceManagement", .when(platforms: [.macOS])),
                 .linkedFramework("ScreenCaptureKit", .when(platforms: [.macOS])),
                 .linkedFramework("CoreMedia", .when(platforms: [.macOS])),
+                .linkedFramework("Speech", .when(platforms: [.macOS])),
             ]
         ),
         .testTarget(name: "MurmurCoreTests", dependencies: ["MurmurCore"]),

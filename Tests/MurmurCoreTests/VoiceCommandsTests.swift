@@ -219,3 +219,71 @@ final class CoreMLTests: XCTestCase {
                        path.appendingPathComponent("whisper-server").path)
     }
 }
+
+final class CorrectionsTests: XCTestCase {
+    let list = [Correction(heard: "cloud code", write: "Claude Code"), Correction(heard: "cloud", write: "Cloud")]
+
+    func testWholeWordsAnyCase() {
+        XCTAssertEqual(Corrections.apply(list, to: "I opened Cloud Code and cloud  code again."),
+                       "I opened Claude Code and Claude Code again.")
+        XCTAssertEqual(Corrections.apply([Correction(heard: "murmer", write: "Murmur")], to: "murmer, Murmer's and murmers"),
+                       "Murmur, Murmur's and murmers", "whole words only")
+        XCTAssertEqual(Corrections.apply(list, to: "a cloudy day"), "a cloudy day")
+    }
+
+    func testLongestPhraseFirstAndSafeTemplates() {
+        XCTAssertEqual(Corrections.apply(list, to: "cloud code in the cloud"), "Claude Code in the Cloud")
+        XCTAssertEqual(Corrections.apply([Correction(heard: "dollar sign", write: "$1 \\0")], to: "a dollar sign here"),
+                       "a $1 \\0 here", "the replacement is literal")
+        XCTAssertEqual(Corrections.apply([Correction(heard: " ", write: "x"), Correction(heard: "same", write: "same")], to: "same text"),
+                       "same text", "empty and no-op corrections are skipped")
+    }
+
+    func testPipelineAppliesThem() async throws {
+        struct Fixed: Transcriber {
+            var name: String { "fixed" }
+            func transcribe(wav: Data, language: String?, prompt: String?) async throws -> String { "open cloud code now" }
+        }
+        var pipeline = DictationPipeline(transcriber: Fixed(), cleaner: nil, language: nil, prompt: nil)
+        pipeline.corrections = list
+        let samples = [Float](repeating: 0.2, count: 16_000)
+        let result = try await pipeline.run(samples: samples, context: CleanupContext())
+        XCTAssertEqual(result.text, "open Claude Code now")
+    }
+
+    func testSettingsFileEdit() throws {
+        let edited = try XCTUnwrap(ConfigFileEdit.settingCorrections(list, in: Config.defaultFileContents))
+        XCTAssertEqual(try Config.parse(edited).transcription.corrections, list)
+        let again = try XCTUnwrap(ConfigFileEdit.settingCorrections([], in: edited))
+        XCTAssertEqual(try Config.parse(again).transcription.corrections, [])
+        // An older settings file without the key gets it added to the transcription section.
+        let old = #"{ "transcription": { "language": "en" } }"#
+        XCTAssertEqual(try Config.parse(try XCTUnwrap(ConfigFileEdit.settingCorrections(list, in: old))).transcription.corrections, list)
+    }
+}
+
+final class SpeechLanguageTests: XCTestCase {
+    func testEnglishOnlyModels() {
+        XCTAssertTrue(WhisperModelOption.small.isEnglishOnly)
+        XCTAssertFalse(WhisperModelOption.turbo.isEnglishOnly)
+        XCTAssertFalse(SpeechLanguage.needsMultilingualModel("en"))
+        XCTAssertFalse(SpeechLanguage.needsMultilingualModel("en-GB"))
+        XCTAssertTrue(SpeechLanguage.needsMultilingualModel("auto"))
+        XCTAssertTrue(SpeechLanguage.needsMultilingualModel("de"))
+        XCTAssertEqual(SpeechLanguage.choices.first?.code, "en")
+    }
+
+    func testAppleEngineNeedsTheMacApp() {
+        var config = Config()
+        config.transcription.engine = .apple
+        XCTAssertThrowsError(try config.makeTranscriber(env: [:])) { error in
+            XCTAssertEqual(error as? TranscriptionError, .appleSpeechUnavailable)
+        }
+        XCTAssertEqual(try Config.parse(#"{"transcription": {"engine": "apple"}}"#).transcription.engine, .apple)
+    }
+
+    func testPasswordFieldsAreSecure() {
+        XCTAssertEqual(TextTarget.verdict(role: "AXTextField", subrole: "AXSecureTextField", editable: true), .secure)
+        XCTAssertEqual(TextTarget.verdict(role: "AXTextField", subrole: nil, editable: true), .text)
+    }
+}

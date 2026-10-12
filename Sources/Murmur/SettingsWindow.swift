@@ -299,6 +299,8 @@ private struct GeneralTab: View {
 private struct SpeechTab: View {
     @ObservedObject var model: SettingsModel
     @State private var newWord = ""
+    @State private var newHeard = ""
+    @State private var newWrite = ""
     private var c: DictationController { model.controller }
 
     var body: some View {
@@ -307,6 +309,27 @@ private struct SpeechTab: View {
                 Picker("Microphone", selection: Binding(get: { c.microphoneUID ?? "" }, set: { c.setMicrophone($0.isEmpty ? nil : $0) })) {
                     Text("System Default" + (c.defaultMicrophoneName.map { " (\($0))" } ?? "")).tag("")
                     ForEach(c.microphones, id: \.uid) { Text($0.name).tag($0.uid) }
+                }
+                Picker("Speech recognition", selection: Binding(get: { c.speechEngine }, set: { c.setSpeechEngine($0) })) {
+                    Text("Automatic").tag(TranscriptionEngine.auto)
+                    Text("Whisper on this Mac").tag(TranscriptionEngine.local)
+                    if SystemSpeech.isAvailable || c.speechEngine == .apple {
+                        Text("Apple, built into macOS").tag(TranscriptionEngine.apple)
+                    }
+                    if c.speechEngine == .groq { Text("Groq").tag(TranscriptionEngine.groq) }
+                    if c.speechEngine == .openai { Text("OpenAI").tag(TranscriptionEngine.openai) }
+                }
+                Text(Self.engineNote(c.speechEngine, appleAvailable: SystemSpeech.isAvailable))
+                    .font(.caption).foregroundStyle(.secondary)
+                Picker("Language", selection: Binding(get: { c.speechLanguage }, set: { c.setSpeechLanguage($0) })) {
+                    if !SpeechLanguage.choices.contains(where: { $0.code == c.speechLanguage }) {
+                        Text(c.speechLanguage).tag(c.speechLanguage)
+                    }
+                    ForEach(SpeechLanguage.choices) { Text($0.name).tag($0.code) }
+                }
+                if SpeechLanguage.needsMultilingualModel(c.speechLanguage), c.usesLocalWhisper {
+                    Text("Fastest and Balanced understand English only, so other languages use Most accurate.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 if c.usesLocalWhisper {
                     Picker("Speech model", selection: Binding(
@@ -360,6 +383,28 @@ private struct SpeechTab: View {
                     }
                 }
             }
+            Section("Corrections") {
+                Text("Words it keeps getting wrong, fixed in every dictation and meeting: \u{201C}cloud code\u{201D} → \u{201C}Claude Code\u{201D}.")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    TextField("It writes", text: $newHeard).accessibilityLabel("What it writes")
+                    Image(systemName: "arrow.right").foregroundStyle(.secondary).accessibilityHidden(true)
+                    TextField("Should be", text: $newWrite).accessibilityLabel("What it should be").onSubmit(addCorrection)
+                    Button("Add", action: addCorrection)
+                        .disabled(newHeard.trimmingCharacters(in: .whitespaces).isEmpty || newWrite.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                ForEach(c.corrections, id: \.self) { correction in
+                    HStack {
+                        Text(correction.heard).foregroundStyle(.secondary)
+                        Image(systemName: "arrow.right").foregroundStyle(.secondary).accessibilityHidden(true)
+                        Text(correction.write)
+                        Spacer()
+                        Button { c.removeCorrection(correction) } label: { Image(systemName: "minus.circle") }
+                            .accessibilityLabel("Remove correction \(correction.heard)")
+                            .buttonStyle(.borderless)
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
     }
@@ -373,6 +418,24 @@ private struct SpeechTab: View {
     private func add() {
         c.addVocabulary(newWord)
         newWord = ""
+    }
+
+    private func addCorrection() {
+        c.addCorrection(heard: newHeard, write: newWrite)
+        newHeard = ""
+        newWrite = ""
+    }
+
+    static func engineNote(_ engine: TranscriptionEngine, appleAvailable: Bool) -> String {
+        switch engine {
+        case .auto: return "Groq or OpenAI if you added an API key, otherwise Whisper on this Mac."
+        case .local: return "Whisper runs on this Mac with the speech model below. Best with names and vocabulary."
+        case .apple:
+            return appleAvailable
+                ? "Built into macOS: no model to download, no memory used while idle, and your words show as you talk. Vocabulary is Whisper's; corrections work with both."
+                : "Needs macOS 26 or later. Pick Whisper on this Mac."
+        case .groq, .openai: return "Sent to \(engine == .groq ? "Groq" : "OpenAI") with your API key."
+        }
     }
 }
 

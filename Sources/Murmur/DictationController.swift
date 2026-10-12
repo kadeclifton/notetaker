@@ -32,6 +32,7 @@ final class DictationController {
             self?.remember(text, mode: .compose)
             if outcome == .inserted { self?.noteInsertion(into: NSWorkspace.shared.frontmostApplication?.processIdentifier) }
             if outcome == .copiedOnly { self?.flash("Copied: no text field to paste into. Press ⌘V where you want it.") }
+            if outcome == .passwordField { self?.flash(DictationController.passwordFieldMessage) }
         }
         compose.onSaved = { [weak self] in self?.library.refresh() }
         compose.onMessage = { [weak self] message in self?.flash(message) }
@@ -114,6 +115,7 @@ final class DictationController {
     var hotkeyDescription: String { hotkeySpec.displayName }
 
     func start() {
+        AppleSpeech.register()
         hotkeys.onInput = { [weak self] input, time in self?.handle(input, at: time) }
         hotkeys.onModifiers = { [weak self] modifiers in self?.modifiersChanged(modifiers) }
         downloader.onFinished = { [weak self] option in self?.useWhisperModel(option) }
@@ -268,7 +270,8 @@ final class DictationController {
                         ? try? self.config.makeChatModel(provider: m.summaryProvider, model: m.summaryModel,
                                                          baseURL: self.config.cleanup.baseURL, env: self.env, local: self.localLLM,
                                                          purpose: .summary)
-                        : nil)
+                        : nil,
+                    corrections: self.config.transcription.corrections)
                 let recorder = try await MeetingRecorder.start(setup)
                 recorder.onChange = { [weak self] in self?.onChange?() }
                 recorder.onTimeLimit = { [weak self] in self?.stopMeeting() }
@@ -333,7 +336,7 @@ final class DictationController {
     var usesLocalWhisper: Bool {
         switch config.transcription.engine {
         case .local: return true
-        case .groq, .openai: return false
+        case .groq, .openai, .apple: return false
         case .auto: return HostedAPI.groq.key(in: env) == nil && HostedAPI.openAI.key(in: env) == nil
         }
     }
@@ -737,6 +740,74 @@ final class DictationController {
         }
     }
 
+    // MARK: Corrections, language, engine
+
+    static let passwordFieldMessage = "Not typed into a password field. It's on the clipboard if you meant it: press ⌘V."
+
+    /// "Always write X as Y" (transcription.corrections).
+    var corrections: [Correction] { config.transcription.corrections }
+
+    func addCorrection(heard: String, write: String) {
+        let heard = heard.trimmingCharacters(in: .whitespacesAndNewlines)
+        let write = write.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !heard.isEmpty, !write.isEmpty, heard != write else { return }
+        setCorrections(corrections.filter { $0.heard.caseInsensitiveCompare(heard) != .orderedSame }
+                       + [Correction(heard: heard, write: write)])
+    }
+
+    func removeCorrection(_ correction: Correction) {
+        setCorrections(corrections.filter { $0 != correction })
+    }
+
+    private func setCorrections(_ list: [Correction]) {
+        do {
+            _ = try Config.loadOrCreate(at: AppPaths.configFile)
+            if try ConfigFileEdit.setCorrections(list, in: AppPaths.configFile) {
+                reloadConfig()
+            } else {
+                fail("Could not change the corrections in the settings file. Edit transcription.corrections by hand.")
+            }
+        } catch {
+            fail("Could not update the settings file: \(error)")
+        }
+    }
+
+    /// transcription.language: "en", "auto" or another code.
+    var speechLanguage: String { config.transcription.language.lowercased() }
+
+    /// Picks the language. Whisper's Fastest and Balanced models only understand English, so another
+    /// language switches to Most accurate (downloading it if needed); Apple's engine fetches it.
+    func setSpeechLanguage(_ code: String) {
+        editSettings("transcription", "language", json: ConfigFileEdit.quoted(code)) { $0.transcription.language == code }
+        if SpeechLanguage.needsMultilingualModel(code), usesLocalWhisper, currentWhisperModel?.isEnglishOnly == true {
+            selectWhisperModel(.turbo)
+        }
+        if config.transcription.engine == .apple { prepareAppleSpeech() }
+    }
+
+    var speechEngine: TranscriptionEngine { config.transcription.engine }
+
+    func setSpeechEngine(_ engine: TranscriptionEngine) {
+        editSettings("transcription", "engine", json: ConfigFileEdit.quoted(engine.rawValue)) { $0.transcription.engine == engine }
+        if !usesLocalWhisper { WhisperServer.stopShared() }
+        if engine == .apple { prepareAppleSpeech() }
+    }
+
+    /// The first time, macOS downloads the language's speech model; do it now rather than on the
+    /// first dictation.
+    private func prepareAppleSpeech() {
+        let language = speechLanguage
+        flash("Getting Apple's speech model ready…")
+        Task { @MainActor [weak self] in
+            do {
+                try await AppleSpeech.prepare(language: language)
+                self?.flash("Apple speech recognition is ready")
+            } catch {
+                self?.fail("\(error)")
+            }
+        }
+    }
+
     // MARK: Windows
 
     private lazy var howTo = HowToWindowController()
@@ -942,9 +1013,14 @@ final class DictationController {
     private func tick() {
         guard machine.isRecording else { stopTicking(); return }
         ticksSinceDrain += 1
-        if early != nil, ticksSinceDrain >= 20 {
+        if let early, ticksSinceDrain >= 20 {
             ticksSinceDrain = 0
             feedEarly(recorder.takeRecorded())
+            Task { @MainActor [weak self] in
+                let text = await early.textSoFar
+                guard let self, self.machine.isRecording, self.pill.model.liveText != text else { return }
+                self.pill.model.liveText = text
+            }
         }
         let actions = machine.handle(.tick, at: now)
         if !actions.isEmpty {
@@ -1107,6 +1183,11 @@ final class DictationController {
                     return
                 }
                 let outcome = await self.inserter.insert(result.text, config: insertion)
+                if outcome == .passwordField {
+                    // Never typed, and kept out of Recent: it may be a password said out loud.
+                    self.finishJob(id, message: DictationController.passwordFieldMessage)
+                    return
+                }
                 self.remember(result.text, mode: mode, spoken: Audio.duration(of: samples))
                 if outcome == .inserted { self.noteInsertion(into: targetPID) }
                 if outcome == .copiedOnly {
@@ -1210,7 +1291,11 @@ final class DictationController {
     private func startEarlyTranscription() {
         cancelEarly()
         guard let pipeline = try? DictationPipeline(config: config, env: env, local: localLLM, mode: .dictate) else { return }
-        early = IncrementalTranscription(transcriber: pipeline.transcriber, language: pipeline.language, prompt: pipeline.prompt)
+        // Apple's engine is quick enough to take short pieces, so the words show in the pill as you talk.
+        let pieceSeconds: TimeInterval = config.transcription.engine == .apple ? 5 : 20
+        early = IncrementalTranscription(transcriber: pipeline.transcriber, language: pipeline.language, prompt: pipeline.prompt,
+                                         chunkSeconds: pieceSeconds)
+        pill.model.liveText = ""
     }
 
     private func feedEarly(_ samples: [Float]) {
@@ -1226,6 +1311,7 @@ final class DictationController {
         feedEarly(rest)
         let samples = earlyRecorded
         let feed = earlyFeed
+        pill.model.liveText = ""
         self.early = nil
         earlyFeed = nil
         earlyRecorded = []
@@ -1238,6 +1324,7 @@ final class DictationController {
         earlyFeed = nil
         earlyRecorded = []
         ticksSinceDrain = 0
+        pill.model.liveText = ""
     }
 
     // MARK: Undo
