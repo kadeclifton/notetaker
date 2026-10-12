@@ -62,6 +62,14 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
   finish talking while a list or button is selected rather than a text box, Murmur leaves the
   words on the clipboard instead of losing them; press ⌘V where you want them.
 - **Vocabulary** (menu bar icon → Add Word…) teaches it names and jargon it misspells.
+- **Fix a Word** (menu bar icon → Recent → Fix a Word…, or Settings… → Speech → Corrections): when it
+  keeps writing something wrong ("cloud code"), say what it should be ("Claude Code") and it's fixed
+  in every dictation and meeting from then on.
+- **Settings… → Speech → Speech recognition**: Whisper (the default), or on macOS 26 **Apple, built
+  into macOS**: nothing to download, no memory used while idle, and your words show in the pill as
+  you talk. **Language** picks English, auto-detect or another language.
+- Murmur never types into a password field. If one has focus, the words stay on the clipboard
+  (hidden from clipboard managers) and out of Recent.
 - **Settings… → Speech → Microphone** picks which mic to use. If it keeps saying "No sound from …", pick
   your mic there (a webcam or display mic, say) and check its level in System Settings → Sound →
   Input.

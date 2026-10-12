@@ -38,6 +38,7 @@ public enum TranscriptionError: Error, CustomStringConvertible, Equatable {
     case modelNotFound(String)
     case whisperFailed(status: Int32, output: String)
     case badResponse(String)
+    case appleSpeechUnavailable
 
     public var description: String {
         switch self {
@@ -49,6 +50,8 @@ public enum TranscriptionError: Error, CustomStringConvertible, Equatable {
             return "whisper-cli exited with status \(status): \(output)"
         case let .badResponse(detail):
             return "Unexpected transcription response: \(detail)"
+        case .appleSpeechUnavailable:
+            return "Apple's speech recognition needs macOS 26 or later. Pick Whisper in Settings → Speech, or set transcription.engine to \"auto\"."
         }
     }
 }

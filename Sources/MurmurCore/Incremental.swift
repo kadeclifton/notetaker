@@ -47,6 +47,9 @@ public actor IncrementalTranscription {
         return TranscriptFilter.clean(pieces.joined(separator: " "))
     }
 
+    /// What has been transcribed so far, for showing the words in the pill while you talk.
+    public var textSoFar: String { pieces.joined(separator: " ") }
+
     public func cancel() {
         cancelled = true
         queue?.cancel()

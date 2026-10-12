@@ -43,6 +43,8 @@ public enum TextTarget {
     public enum Verdict: Equatable {
         case text
         case notText
+        /// A password field: dictation is never typed into one.
+        case secure
     }
 
     /// Controls that never take typing: lists, buttons, images and the like. Not windows, groups or
@@ -56,7 +58,8 @@ public enum TextTarget {
     /// - Parameters:
     ///   - role: the focused element's AXRole, or nil when Accessibility reports none.
     ///   - editable: whether its value can be set or it has a text selection, if known.
-    public static func verdict(role: String?, editable: Bool?) -> Verdict {
+    public static func verdict(role: String?, subrole: String? = nil, editable: Bool?) -> Verdict {
+        if subrole == "AXSecureTextField" || role == "AXSecureTextField" { return .secure }
         if editable == true { return .text }
         guard let role else { return .text }
         return nonTextRoles.contains(role) ? .notText : .text

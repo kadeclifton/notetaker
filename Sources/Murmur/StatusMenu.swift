@@ -173,6 +173,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         undo.isEnabled = controller.canUndoLastDictation
         undo.toolTip = "Sends ⌘Z to the app it went into. Or just say \u{201C}scratch that\u{201D}."
         menu.addItem(undo)
+        let fix = item("Fix a Word…", action: #selector(addCorrection))
+        fix.toolTip = "Always write a word it keeps getting wrong the way it should be."
+        menu.addItem(fix)
         menu.addItem(.separator())
         let items = controller.recent.items
         if items.isEmpty {
@@ -314,6 +317,28 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         controller.addVocabulary(field.stringValue)
+    }
+
+    /// "It writes … / Should be …": a correction applied to every dictation from now on.
+    @objc private func addCorrection() {
+        let alert = NSAlert()
+        alert.messageText = "Fix a Word"
+        alert.informativeText = "From now on, whenever it writes the first, it writes the second instead."
+        let heard = NSTextField(frame: NSRect(x: 0, y: 30, width: 260, height: 24))
+        heard.placeholderString = "It writes, e.g. cloud code"
+        let write = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        write.placeholderString = "Should be, e.g. Claude Code"
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 54))
+        box.addSubview(heard)
+        box.addSubview(write)
+        heard.nextKeyView = write
+        alert.accessoryView = box
+        alert.addButton(withTitle: "Add")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = heard
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        controller.addCorrection(heard: heard.stringValue, write: write.stringValue)
     }
 
     @objc private func removeVocabularyWord(_ sender: NSMenuItem) {

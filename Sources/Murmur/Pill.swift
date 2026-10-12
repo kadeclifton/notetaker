@@ -20,6 +20,8 @@ final class PillModel: ObservableObject {
     @Published var hotkeyName = "fn"
     /// What this recording will become; changes when ⌃ or ⌃⌥ joins the hotkey.
     @Published var mode: DictationMode = .dictate
+    /// Words transcribed so far in a long dictation (Apple's engine shows them within seconds).
+    @Published var liveText = ""
 }
 
 /// A small always-on-top capsule, under the menu bar by default. It never takes focus, so the app
@@ -190,14 +192,14 @@ struct PillView: View {
         switch model.phase {
         case .recording(.hold):
             Circle().fill(Color.red).frame(width: 8, height: 8)
-            Text("Listening")
+            listeningText
             ModeTag(mode: model.mode)
             LevelMeter(level: model.level)
             Text(Self.clock(model.elapsed)).monospacedDigit().foregroundStyle(.white.opacity(0.6))
 
         case .recording(.handsFree):
             Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(.orange).accessibilityHidden(true)
-            Text("Hands-free")
+            if model.liveText.isEmpty { Text("Hands-free") } else { liveWords }
             ModeTag(mode: model.mode)
             LevelMeter(level: model.level)
             if model.remaining <= 30 {
@@ -217,6 +219,19 @@ struct PillView: View {
                 .foregroundStyle(isError ? Color.yellow : Color.white.opacity(0.7))
             Text(text).lineLimit(1)
         }
+    }
+
+    @ViewBuilder
+    private var listeningText: some View {
+        if model.liveText.isEmpty { Text("Listening") } else { liveWords }
+    }
+
+    /// The end of what has been heard so far, cut at the front so the newest words show.
+    private var liveWords: some View {
+        Text(model.liveText)
+            .lineLimit(1)
+            .truncationMode(.head)
+            .frame(maxWidth: 280, alignment: .trailing)
     }
 
     static func clock(_ seconds: TimeInterval) -> String {

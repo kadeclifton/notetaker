@@ -8,6 +8,8 @@ public enum TranscriptionEngine: String, Codable, Sendable, CaseIterable {
     case local
     case groq
     case openai
+    /// Speech recognition built into macOS 26: no model download or background server.
+    case apple
 }
 
 /// Which LLM cleans up the raw transcript.
@@ -57,6 +59,8 @@ public struct TranscriptionConfig: Codable, Equatable, Sendable {
     public var language: String = "en"
     /// Names and jargon Whisper tends to misspell. Sent as the initial prompt.
     public var vocabulary: [String] = []
+    /// Words the engine keeps getting wrong, rewritten in every transcript.
+    public var corrections: [Correction] = []
     public var whisperCpp = WhisperCppConfig()
     public var groqModel: String = "whisper-large-v3-turbo"
     public var openaiModel: String = "whisper-1"
@@ -272,12 +276,15 @@ extension Config {
 
       "transcription": {
         // "auto": Groq or OpenAI if a key is in .env, otherwise local whisper.cpp.
-        // "local": always whisper.cpp, fully offline. Or force "groq" / "openai".
+        // "local": always whisper.cpp, fully offline. "apple": the speech recognition built
+        // into macOS 26 (on this Mac, no model download). Or force "groq" / "openai".
         "engine": "auto",
         // ISO code like "en" or "de", or "auto" to detect.
         "language": "en",
         // Names and jargon Whisper keeps getting wrong.
         "vocabulary": [],
+        // Always write one thing as another, e.g. [{"heard": "cloud code", "write": "Claude Code"}].
+        "corrections": [],
         "whisperCpp": {
           // Empty: find whisper-cli in /opt/homebrew/bin, /usr/local/bin, and friends.
           "binary": "",

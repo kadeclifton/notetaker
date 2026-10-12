@@ -71,7 +71,11 @@ extension Config {
         case .auto: api = [HostedAPI.groq, .openAI].first { $0.key(in: env) != nil }
         case .groq: api = .groq
         case .openai: api = .openAI
-        case .local: api = nil
+        case .local, .apple: api = nil
+        }
+        if t.engine == .apple {
+            guard let make = SystemSpeech.makeTranscriber else { throw TranscriptionError.appleSpeechUnavailable }
+            return make(t.language)
         }
         if let api {
             return WhisperAPITranscriber(service: api.name, baseURL: api.baseURL, apiKey: try api.requireKey(in: env),
@@ -193,6 +197,8 @@ public struct DictationPipeline: Sendable {
     /// Snippets to expand and "scratch that" to obey. Off for Compose, which reads everything.
     public var snippets: [Snippet]
     public var voiceCommands: Bool
+    /// "Always write X as Y", applied to every transcript and to the cleaned-up text.
+    public var corrections: [Correction] = []
 
     public init(transcriber: Transcriber, cleaner: TextCleaner?, language: String?, prompt: String?,
                 snippets: [Snippet] = [], voiceCommands: Bool = false) {
@@ -218,6 +224,7 @@ public struct DictationPipeline: Sendable {
             snippets: config.snippets,
             voiceCommands: mode == .dictate || mode == .clean
         )
+        corrections = config.transcription.corrections
     }
 
     /// A sentence for the menu's "Last issue" line, not an NSError dump.
@@ -258,7 +265,7 @@ public struct DictationPipeline: Sendable {
         }
         let transcribeSeconds = Date().timeIntervalSince(transcribeStart)
         try Task.checkCancellation()
-        var transcript = TranscriptFilter.clean(heard)
+        var transcript = Corrections.apply(corrections, to: TranscriptFilter.clean(heard))
         guard !transcript.isEmpty else {
             return PipelineResult(transcript: "", text: "", cleanupProblem: nil, transcribeSeconds: transcribeSeconds)
         }
@@ -289,7 +296,8 @@ public struct DictationPipeline: Sendable {
             try Task.checkCancellation()
             switch CleanupGuard.check(raw: transcript, cleaned: CleanupPrompt.unwrap(output, raw: transcript)) {
             case let .accept(text):
-                result = PipelineResult(transcript: transcript, text: text, cleanupProblem: nil)
+                // Cleanup may "fix" a corrected word back; apply the corrections once more.
+                result = PipelineResult(transcript: transcript, text: Corrections.apply(corrections, to: text), cleanupProblem: nil)
             case let .reject(reason):
                 result = PipelineResult(transcript: transcript, text: transcript, cleanupProblem: "Cleanup ignored: \(reason)")
             }

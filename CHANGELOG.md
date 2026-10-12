@@ -3,6 +3,17 @@
 What changed in each Murmur release. Betas of a version carry its list as it grows. Older releases
 are on the [releases page](https://github.com/kadeclifton/notetaker/releases).
 
+## 0.2.5
+
+- **Apple's speech recognition.** On macOS 26, Settings → Speech → Speech recognition → Apple uses
+  the engine built into macOS: nothing to download, no memory used while idle, and long dictations
+  show their words in the pill as you talk. Whisper stays the default.
+- **Fix a Word.** Tell Murmur to always write something it keeps getting wrong the way it should be,
+  like "cloud code" → "Claude Code". Recent → Fix a Word…, or Settings → Speech → Corrections.
+- **Language.** Settings → Speech picks English, auto-detect, or another language.
+- **Never types into password fields.** The words stay on the clipboard instead, hidden from
+  clipboard managers and kept out of Recent.
+
 ## 0.2.4
 
 - **One place for settings.** The menu's More submenu is gone: pill position, launch at login,

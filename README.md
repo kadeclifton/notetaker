@@ -140,6 +140,8 @@ Click the wave in the menu bar:
   (kept in memory only).
 - **Snippets**: click one to type it where you are, **Add Snippet…**, and **Edit Snippets…**.
 - **Vocabulary**: add or remove the names and jargon passed to Whisper (`transcription.vocabulary`).
+- **Recent → Fix a Word…**: always write something it keeps getting wrong the way it should be
+  (`transcription.corrections`, also in Settings… → Speech).
 - **Settings…** (⌘,): everything else, in one window. **General**: hotkey picker, launch at login,
   sounds, pill position; **Speech** (microphone, speech model and how long the last
   dictation took, Neural Engine, vocabulary); **Writing** (whether plain fn cleans up too, which
@@ -313,9 +315,10 @@ back to its default. `MURMUR_HOME` moves the whole directory.
   "modes": { "hotkey": "dictate", "withControl": "clean", "withControlOption": "compose" },
 
   "transcription": {
-    "engine": "auto",        // "auto" | "local" | "groq" | "openai"
-    "language": "en",        // or "auto"
+    "engine": "auto",        // "auto" | "local" | "apple" | "groq" | "openai"
+    "language": "en",        // or "auto", "de", "es", ...
     "vocabulary": [],        // e.g. ["Kubernetes", "Anthropic"], passed to Whisper as a hint
+    "corrections": [],       // e.g. [{"heard": "cloud code", "write": "Claude Code"}], fixed every time
     "whisperCpp": {
       "binary": "",          // empty: finds whisper-cli in Homebrew's paths
       "model": "models/ggml-small.en.bin",   // relative to ~/.config/murmur
@@ -372,7 +375,11 @@ back to its default. `MURMUR_HOME` moves the whole directory.
 
 **`engine: "auto"`** uses Groq if `GROQ_API_KEY` is set, then OpenAI if `OPENAI_API_KEY` is set,
 otherwise local whisper.cpp. Set `"local"` to keep audio on your Mac even when you have keys
-(for example, to use a key only for cleanup).
+(for example, to use a key only for cleanup). `"apple"` (macOS 26) uses the speech recognition built
+into macOS: on your Mac, nothing to download, no background server, and long dictations show their
+words in the pill as you talk; `vocabulary` is Whisper-only, `corrections` work with every engine.
+Settings… → Speech picks the engine and the language; Fastest and Balanced understand English only,
+so another language switches Whisper to Most accurate.
 
 **`cleanup.provider: "auto"`** picks the first of Groq, OpenAI, Anthropic that has a key, then a local
 Ollama or LM Studio. With none of those, cleanup is skipped and the raw transcript is inserted.
