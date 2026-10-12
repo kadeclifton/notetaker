@@ -16,6 +16,9 @@ enum AppleSpeechError: Error, CustomStringConvertible {
     }
 }
 
+// SpeechAnalyzer is in the macOS 26 SDK, which comes with Xcode 26 (Swift 6.2). Older toolchains
+// build Murmur without Apple's engine; Settings then only offers Whisper.
+#if compiler(>=6.2)
 /// Transcribes with the speech recognition built into macOS 26 (SpeechAnalyzer). It runs on this
 /// Mac with a model macOS manages, so Murmur downloads nothing and keeps no server running.
 /// Vocabulary is Whisper's; corrections apply to both.
@@ -79,18 +82,23 @@ struct AppleSpeechTranscriber: Transcriber {
         return transcriber
     }
 }
+#endif
 
 enum AppleSpeech {
     /// Lets MurmurCore build the transcriber for transcription.engine "apple" on macOS 26 and later.
     static func register() {
+        #if compiler(>=6.2)
         if #available(macOS 26, *) {
             SystemSpeech.makeTranscriber = { language in AppleSpeechTranscriber(language: language) }
         }
+        #endif
     }
 
     /// See `AppleSpeechTranscriber.prepare`. Does nothing before macOS 26.
     static func prepare(language: String) async throws {
+        #if compiler(>=6.2)
         if #available(macOS 26, *) { try await AppleSpeechTranscriber.prepare(language: language) }
+        #endif
     }
 }
 #endif
