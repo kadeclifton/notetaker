@@ -69,7 +69,7 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
   your way, or pick a spot in Settings… → General.
 - **Settings…** (⌘, from the menu) changes the hotkey (click Change… and press the key you want),
   microphone, speech model, Neural Engine, vocabulary, snippets and meeting options.
-- **More → How to Use Murmur** shows all of this on one page.
+- **Settings… → About → How to Use Murmur** shows all of this on one page.
 - **Meeting Notes** (menu bar icon → Start Meeting Notes) records a call and writes notes. It asks for Screen &
   System Audio Recording the first time, to hear the other people. When a call starts in Zoom, Teams,
   FaceTime, Slack or a browser, Murmur offers to take notes (it never starts on its own; turn the
@@ -84,7 +84,7 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
   starts instantly, and let go after 15 minutes without dictating. Pick 5 or 30 minutes, or Never.
 - **Settings… → General** shows how many words you dictated this week and roughly how much typing
   that saved, counted on your Mac only.
-- **Copy Diagnostics** (Settings… → About, or More) copies your settings, status and recent errors
+- **Copy Diagnostics** (Settings… → About) copies your settings, status and recent errors
   for a bug report. It never includes anything you dictated or your API keys.
 - **Remove Murmur…** (Settings… → About) takes Murmur and everything it stored off your Mac. Your
   Library and meeting notes stay.
@@ -103,7 +103,7 @@ right away. (You can also download the new zip yourself and replace Murmur in Ap
 **Updates: Release or Beta** (same place): pick Beta to get new versions before everyone else.
 
 If Murmur stops reacting to fn after an update, macOS is holding on to the old permission: open
-the menu → **More → Setup…**, click **Reset Murmur's Permissions and Ask Again**, and allow them.
+**Settings… → About → Setup…**, click **Reset Murmur's Permissions and Ask Again**, and allow them.
 
 ## Optional: cleanup (fn⌃) and Compose (fn⌃⌥)
 

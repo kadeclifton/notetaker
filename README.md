@@ -72,8 +72,8 @@ scripts/build-app.sh --install
 
 Murmur appears in the menu bar as its wave: the loudness of the word "murmur", in 13 bars. There is no Dock icon.
 
-Optional: add API keys. Choose **More → Open API Keys (.env)** from the menu (it
-creates `~/.config/murmur/.env`), fill in what you have, then **More → Reload Settings**:
+Optional: add API keys. Choose **Settings… → About → Open API Keys** (it
+creates `~/.config/murmur/.env`), fill in what you have, then **Reload Settings** next to it:
 
 ```sh
 GROQ_API_KEY=gsk_...        # fast Whisper + cleanup
@@ -140,12 +140,12 @@ Click the wave in the menu bar:
   (kept in memory only).
 - **Snippets**: click one to type it where you are, **Add Snippet…**, and **Edit Snippets…**.
 - **Vocabulary**: add or remove the names and jargon passed to Whisper (`transcription.vocabulary`).
-- **More**: setup window, how-to, pill position, launch at login, the meeting notes and library
-  folders, the settings and API key files, **Check for Updates…** and **Copy Diagnostics**.
-- **Settings…** (⌘,): hotkey picker; **Speech** (microphone, speech model and how long the last
+- **Settings…** (⌘,): everything else, in one window. **General**: hotkey picker, launch at login,
+  sounds, pill position; **Speech** (microphone, speech model and how long the last
   dictation took, Neural Engine, vocabulary); **Writing** (whether plain fn cleans up too, which
   models clean up and compose, how long Ollama keeps the cleanup model loaded, and the Compose model:
-  Automatic picks the best one that fits your Mac); snippets; meeting options; version and diagnostics.
+  Automatic picks the best one that fits your Mac); snippets; meeting options; **About**: updates, Copy Diagnostics, How to Use, Setup, the settings and
+  API key files, and anything that needs fixing.
   Picking a specific microphone helps in clamshell mode with a webcam or display mic; a silent
   recording names the mic it listened to, and quiet mics are boosted (up to +26 dB).
 - **An update is available · Restart to Update** appears just above Quit once a newer release has

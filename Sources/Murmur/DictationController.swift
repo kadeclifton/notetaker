@@ -505,6 +505,30 @@ final class DictationController {
         }
     }
 
+    /// The API keys file (~/.config/murmur/.env), created with an explained template the first time.
+    func openAPIKeys() {
+        let url = AppPaths.envFile
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let template = """
+            # API keys for Murmur. Leave all of these empty to stay fully local and offline.
+            # Transcription (engine "auto" uses the first one present) and cleanup LLM:
+            GROQ_API_KEY=
+            OPENAI_API_KEY=
+            # Cleanup only:
+            ANTHROPIC_API_KEY=
+            # Only for cleanup.provider "custom", if your server needs one:
+            CLEANUP_API_KEY=
+
+            """
+            FileManager.default.createFile(atPath: url.path, contents: Data(template.utf8),
+                                           attributes: [.posixPermissions: 0o600])
+        }
+        // .env has no default app; open it as plain text.
+        NSWorkspace.shared.open([url], withApplicationAt: URL(fileURLWithPath: "/System/Applications/TextEdit.app"),
+                                configuration: NSWorkspace.OpenConfiguration())
+    }
+
     func openLibraryFolder() {
         let folder = LibraryStore(config: config.compose).folder
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

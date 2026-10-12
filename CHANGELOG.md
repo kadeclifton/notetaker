@@ -3,6 +3,12 @@
 What changed in each Murmur release. Betas of a version carry its list as it grows. Older releases
 are on the [releases page](https://github.com/kadeclifton/notetaker/releases).
 
+## 0.2.4
+
+- **One place for settings.** The menu's More submenu is gone: pill position, launch at login,
+  Setup, How to Use, the settings and API key files, updates and Copy Diagnostics are all in
+  Settings…, which also lists anything that needs fixing.
+
 ## 0.2.3
 
 - **Meeting Notes hear FaceTime.** The call's audio now comes straight from macOS, so FaceTime and

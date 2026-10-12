@@ -62,7 +62,7 @@ private struct HowToView: View {
 
             Spacer(minLength: 0)
             HStack {
-                Text("Open this again from the menu: More → How to Use Murmur.")
+                Text("Open this again from Settings… → About → How to Use Murmur.")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Got It", action: close).keyboardShortcut(.defaultAction)

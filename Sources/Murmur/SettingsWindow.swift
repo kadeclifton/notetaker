@@ -277,6 +277,9 @@ private struct GeneralTab: View {
             Section {
                 Toggle("Dictation on", isOn: Binding(get: { c.enabled }, set: { c.enabled = $0 }))
                 Toggle("Launch at login", isOn: Binding(get: { LoginItem.isEnabled }, set: { on in _ = try? LoginItem.set(on) }))
+                if LoginItem.needsApproval {
+                    Text("Approve Murmur in System Settings → General → Login Items.").font(.caption).foregroundStyle(.orange)
+                }
                 Toggle("Sounds", isOn: Binding(get: { c.config.feedback.sounds }, set: { on in
                     c.editSettings("feedback", "sounds", json: on ? "true" : "false") { $0.feedback.sounds == on }
                 }))
@@ -449,6 +452,10 @@ private struct WritingTab: View {
                         }
                     }
                 }
+                HStack {
+                    Button("Library…") { c.showLibrary() }
+                    Button("Open Library Folder") { c.openLibraryFolder() }
+                }
             }
             Section {
                 LabeledContent("Meeting summaries", value: c.summaryName)
@@ -601,6 +608,14 @@ private struct AboutTab: View {
                         Button(c.updater.isReady ? "Restart to Update (\(release.tag))" : "Update to \(release.tag)") { c.updater.install(release) }
                     }
                 }
+                if let release = c.updater.available, !release.highlights.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("What's new in \(release.tag)").font(.caption.weight(.semibold))
+                        ForEach(release.highlights, id: \.self) { Text("• " + $0).font(.caption) }
+                        Button("Full Release Notes…") { c.updater.openReleasePage() }
+                            .buttonStyle(.link).font(.caption)
+                    }
+                }
                 if case .upToDate = c.updater.state { Text("You have the latest version.").font(.caption).foregroundStyle(.secondary) }
                 if case let .failed(message) = c.updater.state { Text(message).font(.caption).foregroundStyle(.red) }
                 Picker("Updates", selection: Binding(get: { c.config.updates.betaUpdates }, set: { beta in
@@ -630,7 +645,11 @@ private struct AboutTab: View {
                         _ = try? Config.loadOrCreate(at: AppPaths.configFile)
                         NSWorkspace.shared.open(AppPaths.configFile)
                     }
+                    Button("Open API Keys") { c.openAPIKeys() }
                     Button("Reload Settings") { c.reloadConfig() }
+                }
+                ForEach(c.problems, id: \.self) { problem in
+                    Text("⚠️ " + problem).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
                 }
                 if let failure = c.lastFailure {
                     Text("Last issue: " + failure).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
