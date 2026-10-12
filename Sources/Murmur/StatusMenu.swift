@@ -72,7 +72,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     // Rebuilt every time it opens so it always reflects current state. The top level stays short:
     // what state Murmur is in, the things you do (dictate, record a meeting, snippets), and Settings.
-    // Speech model, microphone and the writing models live in the Settings window.
+    // Everything else (models, microphone, pill, files, updates, diagnostics) lives in the Settings window.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         controller.detectLocalLLM()
@@ -90,7 +90,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(submenu("Snippets", snippetsMenu()))
         menu.addItem(submenu("Vocabulary", vocabularyMenu()))
-        menu.addItem(submenu("More", settingsMenu()))
         menu.addItem(item("Settings…", action: #selector(showSettingsWindow), key: ","))
 
         let update = updateItems()
@@ -109,7 +108,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             return item("⚠️ Finish Setup…", action: #selector(showSetup))
         }
         if let problem = controller.problems.first {
-            let line = item("⚠️ " + problem, action: #selector(openSettings))
+            let line = item("⚠️ " + problem, action: #selector(showProblems))
             line.toolTip = problem
             if line.title.count > 60 { line.title = String(line.title.prefix(57)) + "…" }
             return line
@@ -195,22 +194,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         return menu
     }
 
-    /// Where the Listening/Transcribing pill appears. Dragging the pill picks "Where I Dragged It".
-    private func pillPositionMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        let current = controller.pillPosition
-        for position in PillPosition.allCases {
-            let choice = item(position.title, action: #selector(setPillPosition(_:)))
-            choice.representedObject = position.rawValue
-            choice.state = position == current ? .on : .off
-            menu.addItem(choice)
-            if position == .bottomRight { menu.addItem(.separator()) }
-        }
-        menu.addItem(info("Or drag the pill anywhere while it shows"))
-        return menu
-    }
-
     /// Saved text: click one to type it where you are; say its phrase to do the same by voice.
     private func snippetsMenu() -> NSMenu {
         let menu = NSMenu()
@@ -257,31 +240,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         return menu
     }
 
-    private func settingsMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        menu.addItem(item(controller.needsSetup ? "Finish Setup…" : "Setup…", action: #selector(showSetup)))
-        menu.addItem(item("How to Use Murmur…", action: #selector(showHowTo)))
-        menu.addItem(submenu("Pill Position", pillPositionMenu()))
-        let login = item("Launch at Login", action: #selector(toggleLaunchAtLogin))
-        login.state = LoginItem.isEnabled ? .on : (LoginItem.needsApproval ? .mixed : .off)
-        menu.addItem(login)
-        menu.addItem(.separator())
-        menu.addItem(item("Open Meeting Notes Folder", action: #selector(openMeetings)))
-        menu.addItem(item("Open Compose Library Folder", action: #selector(openLibraryFolder)))
-        menu.addItem(item("Open Settings File", action: #selector(openSettings)))
-        menu.addItem(item("Open API Keys (.env)", action: #selector(openEnv)))
-        menu.addItem(item("Reload Settings", action: #selector(reload), key: "r"))
-        menu.addItem(item("Check for Updates…", action: #selector(checkForUpdates)))
-        menu.addItem(item("Copy Diagnostics", action: #selector(copyDiagnostics)))
-        menu.addItem(info(updateStatus()))
-        menu.addItem(.separator())
-        menu.addItem(info("Transcription: \(controller.transcriberName)"))
-        for problem in controller.problems { menu.addItem(info("⚠️ " + problem)) }
-        if let failure = controller.lastFailure { menu.addItem(info("Last issue: " + failure)) }
-        return menu
-    }
-
     private func submenu(_ title: String, _ menu: NSMenu) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.submenu = menu
@@ -310,85 +268,13 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         controller.enabled.toggle()
     }
 
-    @objc private func toggleLaunchAtLogin() {
-        do {
-            try LoginItem.set(!LoginItem.isEnabled)
-            if LoginItem.needsApproval {
-                showAlert("Approve Murmur in System Settings → General → Login Items.")
-            }
-        } catch {
-            showAlert("Could not change Launch at Login: \(error.localizedDescription)\n\nMurmur must run from an app bundle, e.g. /Applications/Murmur.app.")
-        }
-    }
-
-    @objc private func openSettings() {
-        _ = try? Config.loadOrCreate(at: AppPaths.configFile)
-        NSWorkspace.shared.open(AppPaths.configFile)
-    }
-
-    @objc private func openEnv() {
-        let url = AppPaths.envFile
-        if !FileManager.default.fileExists(atPath: url.path) {
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let template = """
-            # API keys for Murmur. Leave all of these empty to stay fully local and offline.
-            # Transcription (engine "auto" uses the first one present) and cleanup LLM:
-            GROQ_API_KEY=
-            OPENAI_API_KEY=
-            # Cleanup only:
-            ANTHROPIC_API_KEY=
-            # Only for cleanup.provider "custom", if your server needs one:
-            CLEANUP_API_KEY=
-
-            """
-            FileManager.default.createFile(atPath: url.path, contents: Data(template.utf8),
-                                           attributes: [.posixPermissions: 0o600])
-        }
-        // .env has no default app; open it as plain text.
-        NSWorkspace.shared.open([url], withApplicationAt: URL(fileURLWithPath: "/System/Applications/TextEdit.app"),
-                                configuration: NSWorkspace.OpenConfiguration())
-    }
-
-    @objc private func reload() {
-        controller.reloadConfig()
-    }
-
-
     @objc private func showSetup() {
         controller.showSetup()
     }
 
-
-
-
-    private func updateStatus() -> String {
-        let version = "Murmur \(controller.updater.currentVersion)"
-        switch controller.updater.state {
-        case .checking: return version + " · checking for updates…"
-        case .upToDate: return version + " · up to date"
-        case let .available(release): return version + " · \(release.tag) available"
-        case let .downloading(release): return version + " · downloading \(release.tag)…"
-        case let .ready(release, _): return version + " · \(release.tag) ready: Restart to Update"
-        case let .installing(step): return version + " · " + step
-        case let .failed(message): return "⚠️ " + message
-        case .idle: return version
-        }
-    }
-
-    @objc private func checkForUpdates() {
-        Task { @MainActor [self] in
-            await controller.updater.check(userInitiated: true)
-            switch controller.updater.state {
-            case let .available(release), let .downloading(release), let .ready(release, _):
-                var text = "Murmur \(release.tag) is available. It downloads in the background; choose Restart to Update in the menu when it appears."
-                let highlights = release.highlights
-                if !highlights.isEmpty { text += "\n\nWhat's new:\n" + highlights.map { "• " + $0 }.joined(separator: "\n") }
-                showAlert(text)
-            case .upToDate: showAlert("You have the latest version, Murmur \(controller.updater.currentVersion).")
-            case let .failed(message): showAlert(message)
-            case .idle, .checking, .installing: break
-            }
-        }
+    /// The ⚠️ status line: Settings → About lists every problem next to the settings file.
+    @objc private func showProblems() {
+        controller.showSettings(tab: .about)
     }
 
     /// One click, no questions, unless a meeting is recording: it would be saved without its summary.
@@ -405,12 +291,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
         controller.updater.install(release)
     }
-
-    @objc private func setPillPosition(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let position = PillPosition(rawValue: raw) else { return }
-        controller.pillPosition = position
-    }
-
 
     @objc private func copyRecent(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let id = UUID(uuidString: raw) else { return }
@@ -439,10 +319,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func removeVocabularyWord(_ sender: NSMenuItem) {
         guard let word = sender.representedObject as? String else { return }
         controller.removeVocabulary(word)
-    }
-
-    @objc private func showHowTo() {
-        controller.showHowTo()
     }
 
     @objc private func addSnippet() {
@@ -491,10 +367,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         if message != "Undone" { showAlert(message + ".") }
     }
 
-    @objc private func copyDiagnostics() {
-        controller.copyDiagnostics()
-    }
-
     @objc private func showLibrary() {
         controller.showLibrary()
     }
@@ -506,14 +378,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     @objc private func stopMeeting() {
         controller.stopMeeting()
-    }
-
-    @objc private func openMeetings() {
-        controller.openMeetingsFolder()
-    }
-
-    @objc private func openLibraryFolder() {
-        controller.openLibraryFolder()
     }
 
     @objc private func quit() {
