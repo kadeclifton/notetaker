@@ -96,3 +96,48 @@ final class BetaUpdatesTests: XCTestCase {
         XCTAssertEqual(try Config.parse(Config.defaultFileContents), Config())
     }
 }
+
+final class ReleaseNotesTests: XCTestCase {
+    let notes = """
+    # What's new in 0.2.3
+
+    - **Meeting Notes hear FaceTime.** The call's audio now comes straight from macOS, so FaceTime
+      calls are in the notes.
+    - **Remove Murmur…** Settings → About takes it off your Mac.
+    - **No more made-up "Thank you."** Quiet stretches no longer turn into filler.
+    - A plain bullet with `code` in it
+
+    ---
+
+    # Installing Murmur
+
+    - **Download** the DMG.
+    """
+
+    func testHighlightsAreTheBoldLeads() {
+        XCTAssertEqual(ReleaseNotes.highlights(notes), [
+            "Meeting Notes hear FaceTime",
+            "Remove Murmur…",
+            "No more made-up \"Thank you.\"",
+            "A plain bullet with code in it",
+        ])
+        XCTAssertEqual(ReleaseNotes.highlights(notes, limit: 2).count, 2)
+    }
+
+    func testNoWhatsNewMeansNoHighlights() {
+        XCTAssertEqual(ReleaseNotes.highlights("# Installing Murmur\n\n- **Download** the DMG.\n"), [])
+        XCTAssertEqual(ReleaseNotes.highlights(""), [])
+        // A curly apostrophe in the heading counts too.
+        XCTAssertEqual(ReleaseNotes.highlights("## What\u{2019}s New\n- **One.** Two."), ["One"])
+    }
+
+    func testReleaseInfoCarriesThem() throws {
+        let json = """
+        {"tag_name":"v0.2.3","html_url":"https://github.com/o/r/releases/tag/v0.2.3","body":"# What's new in 0.2.3\\n\\n- **Copy Summary.** One click.\\n",
+         "draft":false,"prerelease":false,
+         "assets":[{"name":"Murmur-v0.2.3.zip","browser_download_url":"https://github.com/o/r/releases/download/v0.2.3/Murmur-v0.2.3.zip"}]}
+        """
+        let release = try UpdateChecker.parse(Data(json.utf8))
+        XCTAssertEqual(release.highlights, ["Copy Summary"])
+    }
+}

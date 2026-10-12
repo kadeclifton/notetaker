@@ -57,6 +57,9 @@ public struct ReleaseInfo: Equatable, Sendable {
     public var download: URL
     public var notes: String
 
+    /// The release's "What's new" list, for the update menu. Empty when its notes have none.
+    public var highlights: [String] { ReleaseNotes.highlights(notes) }
+
     public static func == (lhs: ReleaseInfo, rhs: ReleaseInfo) -> Bool { lhs.tag == rhs.tag && lhs.download == rhs.download }
 }
 
@@ -152,5 +155,41 @@ public struct UpdateChecker: Sendable {
         }
         return ReleaseInfo(version: version, tag: release.tag_name, page: release.html_url,
                            download: asset.browser_download_url, notes: release.body ?? "")
+    }
+}
+
+/// Reads the "What's new" list that scripts/release-notes.py puts at the top of a release's notes.
+public enum ReleaseNotes {
+    /// One short line per change: a bullet's bold lead ("**Copy Summary.** One click…" gives
+    /// "Copy Summary"), or the whole bullet without Markdown when it has none.
+    public static func highlights(_ notes: String, limit: Int = 8) -> [String] {
+        var inSection = false
+        var items: [String] = []
+        for raw in notes.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("#") {
+                if inSection { break }
+                let heading = line.lowercased().replacingOccurrences(of: "\u{2019}", with: "'")
+                inSection = heading.contains("what's new")
+                continue
+            }
+            guard inSection else { continue }
+            if line.hasPrefix("---") { break }
+            guard line.hasPrefix("- ") || line.hasPrefix("* ") else { continue }
+            let item = title(of: String(line.dropFirst(2)))
+            if !item.isEmpty { items.append(item) }
+            if items.count == limit { break }
+        }
+        return items
+    }
+
+    static func title(of bullet: String) -> String {
+        var text = bullet.trimmingCharacters(in: .whitespaces)
+        if text.hasPrefix("**"), let end = text.range(of: "**", range: text.index(text.startIndex, offsetBy: 2)..<text.endIndex) {
+            text = String(text[text.index(text.startIndex, offsetBy: 2)..<end.lowerBound])
+            while let last = text.last, ".:".contains(last) { text.removeLast() }
+        }
+        return text.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+            .trimmingCharacters(in: .whitespaces)
     }
 }

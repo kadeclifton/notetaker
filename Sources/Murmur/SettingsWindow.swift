@@ -563,6 +563,13 @@ private struct MeetingsTab: View {
                 LabeledContent("Summaries by", value: c.summaryName)
             }
             Section {
+                LabeledContent("Start or stop") {
+                    Text(c.meetingShortcutName ?? "off").font(.system(.body, design: .rounded).weight(.semibold))
+                }
+                Text("Starts Meeting Notes from anywhere, and stops and summarizes them. Change it with meeting.shortcut in the settings file.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
                 HStack {
                     Button("Meetings in Library…") { c.showLibrary(section: .meetings) }
                     Button("Open Folder") { c.openMeetingsFolder() }

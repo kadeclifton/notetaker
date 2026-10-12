@@ -125,15 +125,33 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         case let .downloading(release):
             return [info("Downloading Murmur \(release.tag)…")]
         case let .ready(release, _):
-            let notes = info("An update is available (\(release.tag))")
-            return [notes, item("Restart to Update", action: #selector(restartToUpdate))]
+            return [info("An update is available (\(release.tag))"), whatsNew(release),
+                    item("Restart to Update", action: #selector(restartToUpdate))].compactMap { $0 }
         case let .available(release):
-            return [info("An update is available (\(release.tag))"), item("Download and Restart", action: #selector(restartToUpdate))]
+            return [info("An update is available (\(release.tag))"), whatsNew(release),
+                    item("Download and Restart", action: #selector(restartToUpdate))].compactMap { $0 }
         case let .installing(step):
             return [info(step)]
         case .idle, .checking, .upToDate, .failed:
             return []
         }
+    }
+
+    /// "What's New in v0.2.3 ▸" with one line per change; any of them opens the full notes.
+    private func whatsNew(_ release: ReleaseInfo) -> NSMenuItem? {
+        let highlights = release.highlights
+        guard !highlights.isEmpty else { return nil }
+        let submenu = NSMenu()
+        for line in highlights { submenu.addItem(item("• " + line, action: #selector(openReleaseNotes))) }
+        submenu.addItem(.separator())
+        submenu.addItem(item("Full Release Notes…", action: #selector(openReleaseNotes)))
+        let parent = NSMenuItem(title: "What's New in \(release.tag)", action: nil, keyEquivalent: "")
+        parent.submenu = submenu
+        return parent
+    }
+
+    @objc private func openReleaseNotes() {
+        controller.updater.openReleasePage()
     }
 
     private func addMeetingItems(to menu: NSMenu) {
@@ -362,7 +380,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             await controller.updater.check(userInitiated: true)
             switch controller.updater.state {
             case let .available(release), let .downloading(release), let .ready(release, _):
-                showAlert("Murmur \(release.tag) is available. It downloads in the background; choose Restart to Update in the menu when it appears.")
+                var text = "Murmur \(release.tag) is available. It downloads in the background; choose Restart to Update in the menu when it appears."
+                let highlights = release.highlights
+                if !highlights.isEmpty { text += "\n\nWhat's new:\n" + highlights.map { "• " + $0 }.joined(separator: "\n") }
+                showAlert(text)
             case .upToDate: showAlert("You have the latest version, Murmur \(controller.updater.currentVersion).")
             case let .failed(message): showAlert(message)
             case .idle, .checking, .installing: break

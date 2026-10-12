@@ -52,6 +52,7 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
   friendly", "fix the grammar", "translate to Spanish". The selection is replaced. Uses the Compose
   model, so it needs the optional model below.
 - **⌃⌥V** pastes your last dictation again, anywhere.
+- **⌃⌥M** starts Meeting Notes from anywhere; press it again to stop and write the summary.
 - **Esc** cancels.
 - Say **"scratch that"** on its own to undo the last dictation (Murmur presses ⌘Z in that app). End
   a sentence with "scratch that" and nothing from it is typed.
@@ -73,7 +74,8 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
   System Audio Recording the first time, to hear the other people. When a call starts in Zoom, Teams,
   FaceTime, Slack or a browser, Murmur offers to take notes (it never starts on its own; turn the
   offer off in Settings… → Meetings). When the call ends, it offers to stop and write the summary. **Live Transcript…** shows it as it's written, and every
-  meeting is in the **Library** (⌘L) next to your Compose pieces.
+  meeting is in the **Library** (⌘L) next to your Compose pieces. **Copy Summary** (in both) copies
+  the summary and action items, ready to paste into a message or an email.
 - **Use the Neural Engine** (Settings… → Speech) runs part of speech recognition on Apple's Neural
   Engine instead of the GPU: less GPU and battery use. It's a one-time download (40 MB to 1.2 GB
   depending on the model), and the first dictation afterwards takes a minute or two while macOS
@@ -95,7 +97,7 @@ smaller Compose model if writing feels slow.
 
 When a new version is out, Murmur downloads it in the background and checks it comes from the same
 developer. Then the menu bar menu shows **An update is available** with **Restart to Update** just
-above Quit: click it and Murmur installs the update and restarts. Settings,
+above Quit, and **What's New** lists what it brings: click Restart to Update and Murmur installs it and restarts. Settings,
 models, the Compose Library and permissions carry over. **Settings… → About → Check for Updates** looks
 right away. (You can also download the new zip yourself and replace Murmur in Applications.)
 **Updates: Release or Beta** (same place): pick Beta to get new versions before everyone else.

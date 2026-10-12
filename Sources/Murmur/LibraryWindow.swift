@@ -281,7 +281,9 @@ private struct MeetingDetail: View {
                     Text(meeting.url.lastPathComponent).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Copy") { model.copy(meeting) }
+                CopyButton(title: "Copy Summary", text: meeting.shareableSummary)
+                    .help("The summary and action items, ready to paste into a message or an email")
+                Button("Copy All") { model.copy(meeting) }
                 Button("Open") { NSWorkspace.shared.open(meeting.url) }
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([meeting.url]) }
             }
@@ -300,6 +302,27 @@ private struct MeetingDetail: View {
     static func rendered(_ markdown: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         return (try? AttributedString(markdown: markdown, options: options)) ?? AttributedString(markdown)
+    }
+}
+
+/// A button that puts `text` on the clipboard and says "Copied" for a moment. Disabled without text.
+struct CopyButton: View {
+    let title: String
+    let text: String?
+    @State private var copied = false
+
+    var body: some View {
+        Button(copied ? "Copied" : title) {
+            guard let text else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            copied = true
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                copied = false
+            }
+        }
+        .disabled(text == nil)
     }
 }
 #endif

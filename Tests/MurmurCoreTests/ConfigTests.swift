@@ -131,3 +131,12 @@ final class HotkeySpecTests: XCTestCase {
         XCTAssertEqual(ShortcutModifiers(eventFlags: 0x0094_0000), [.control, .command])
     }
 }
+
+final class MeetingShortcutTests: XCTestCase {
+    func testDefaultShortcutIsAKeyWithModifiers() throws {
+        XCTAssertEqual(Config().meeting.shortcut, "ctrl+option+m")
+        let spec = try HotkeySpec.parse(Config().meeting.shortcut)
+        XCTAssertFalse(spec.isModifierOnly)
+        XCTAssertEqual(try Config.parse(Config.defaultFileContents).meeting.shortcut, "ctrl+option+m")
+    }
+}
