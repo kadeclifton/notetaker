@@ -3,6 +3,13 @@
 What changed in each Murmur release. Betas of a version carry its list as it grows. Older releases
 are on the [releases page](https://github.com/kadeclifton/notetaker/releases).
 
+## 0.2.6
+
+- **Settings opens properly again.** In 0.2.5 the Settings window could come up blank; it is back
+  to a sidebar that always draws, still searchable and resizable.
+- **A nicer menu.** The menu bar menu opens with a card showing Murmur's state, today's words and
+  time saved, and key caps for what each key combination does, and every item has an icon.
+
 ## 0.2.5
 
 - **Apple's speech recognition.** On macOS 26, Settings → Speech → Speech recognition → Apple uses
