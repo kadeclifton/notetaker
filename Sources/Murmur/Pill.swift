@@ -458,7 +458,7 @@ private struct Waveform: View {
             ForEach(levels.indices, id: \.self) { index in
                 Capsule()
                     .frame(width: 2, height: Self.height(levels[index]))
-                    .opacity(0.3 + 0.7 * Double(index) / Double(max(1, levels.count - 1)))
+                    .opacity(Self.fade(index: index, count: levels.count))
             }
         }
         .frame(height: 16)
@@ -470,7 +470,14 @@ private struct Waveform: View {
     /// A quiet room still shows a small line; speech fills the height. The square root makes soft
     /// speech visible without loud speech hitting the top all the time.
     static func height(_ level: Float) -> CGFloat {
-        3 + 13 * CGFloat(min(1, max(0, level)).squareRoot())
+        let clamped: Float = min(1, max(0, level))
+        return 3 + 13 * CGFloat(clamped.squareRoot())
+    }
+
+    /// The oldest bar at 30%, the newest at full strength.
+    static func fade(index: Int, count: Int) -> Double {
+        let position: Double = Double(index) / Double(max(1, count - 1))
+        return 0.3 + 0.7 * position
     }
 }
 
@@ -480,12 +487,12 @@ private struct ThinkingBars: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { timeline in
-            let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+            let time: TimeInterval = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
             HStack(alignment: .center, spacing: 1.5) {
                 ForEach(MenuBarIcon.heights.indices, id: \.self) { index in
-                    let wave = Self.wave(index: index, time: time)
+                    let wave: Double = Self.wave(index: index, time: time)
                     Capsule()
-                        .frame(width: 2, height: 3 + 11 * MenuBarIcon.heights[index] * (0.6 + 0.4 * wave))
+                        .frame(width: 2, height: Self.barHeight(index: index, wave: wave))
                         .opacity(0.45 + 0.55 * wave)
                 }
             }
@@ -497,8 +504,14 @@ private struct ThinkingBars: View {
 
     /// 0...1: a crest that travels left to right about once a second.
     static func wave(index: Int, time: TimeInterval) -> Double {
-        let x = Double(index) / Double(MenuBarIcon.heights.count - 1)
-        return 0.5 + 0.5 * sin(2 * .pi * (x - time * 1.1))
+        let x: Double = Double(index) / Double(MenuBarIcon.heights.count - 1)
+        let phase: Double = x - time * 1.1
+        return 0.5 + 0.5 * sin(2 * Double.pi * phase)
+    }
+
+    static func barHeight(index: Int, wave: Double) -> CGFloat {
+        let base = Double(MenuBarIcon.heights[index])
+        return CGFloat(3 + 11 * base * (0.6 + 0.4 * wave))
     }
 }
 

@@ -110,14 +110,14 @@ struct TypingIndicator: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { timeline in
-            let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+            let time: TimeInterval = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
             HStack(spacing: 4) {
                 ForEach(0..<3, id: \.self) { index in
-                    let wave = 0.5 + 0.5 * sin(2 * .pi * (time * 1.4 - Double(index) * 0.2))
+                    let wave: Double = Self.wave(index: index, time: time)
                     Circle()
                         .frame(width: 7, height: 7)
                         .opacity(0.35 + 0.65 * wave)
-                        .offset(y: -2 * wave)
+                        .offset(y: CGFloat(-2 * wave))
                 }
             }
             .foregroundStyle(.secondary)
@@ -126,6 +126,12 @@ struct TypingIndicator: View {
             .background(Capsule().fill(.quinary))
         }
         .accessibilityLabel("Transcribing")
+    }
+
+    /// 0...1 for dot `index`: each rises a little after the one before it.
+    static func wave(index: Int, time: TimeInterval) -> Double {
+        let phase: Double = time * 1.4 - Double(index) * 0.2
+        return 0.5 + 0.5 * sin(2 * Double.pi * phase)
     }
 }
 

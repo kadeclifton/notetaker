@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import MurmurCore
 
 /// The menu bar icon: the app icon's 13 bars, the loudness of the word "murmur" spoken aloud.
 /// Drawn in code so it is crisp at any scale; a template image, so macOS tints it for light,

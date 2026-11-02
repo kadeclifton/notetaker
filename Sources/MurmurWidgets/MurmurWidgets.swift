@@ -225,8 +225,8 @@ private struct WeekBars: View {
                         VStack {
                             Spacer(minLength: 0)
                             RoundedRectangle(cornerRadius: 2, style: .continuous)
-                                .fill(index == week.count - 1 ? AnyShapeStyle(Color.purple.gradient) : AnyShapeStyle(.quaternary))
-                                .frame(height: max(3, geometry.size.height * CGFloat(day.words) / CGFloat(most)))
+                                .fill(Self.style(isToday: index == week.count - 1))
+                                .frame(height: Self.height(words: day.words, most: most, room: geometry.size.height))
                         }
                     }
                     if showsDays {
@@ -241,18 +241,27 @@ private struct WeekBars: View {
         .accessibilityElement()
         .accessibilityLabel("\(week.reduce(0) { $0 + $1.words }) words this week")
     }
+
+    static func style(isToday: Bool) -> AnyShapeStyle {
+        isToday ? AnyShapeStyle(Color.purple.gradient) : AnyShapeStyle(.quaternary)
+    }
+
+    static func height(words: Int, most: Int, room: CGFloat) -> CGFloat {
+        let share = CGFloat(words) / CGFloat(max(1, most))
+        return max(3, room * share)
+    }
 }
 
 /// Murmur's 13 bars.
 private struct BrandMark: View {
     var body: some View {
         GeometryReader { geometry in
-            let count = Brand.barHeights.count
-            let bar = geometry.size.width / CGFloat(count * 2 - 1)
+            let count: Int = Brand.barHeights.count
+            let bar: CGFloat = geometry.size.width / CGFloat(count * 2 - 1)
             HStack(alignment: .center, spacing: bar) {
                 ForEach(Brand.barHeights.indices, id: \.self) { index in
                     Capsule()
-                        .frame(width: bar, height: max(bar, geometry.size.height * CGFloat(Brand.barHeights[index])))
+                        .frame(width: bar, height: Self.height(index: index, bar: bar, room: geometry.size.height))
                 }
             }
             .frame(maxHeight: .infinity)
@@ -260,6 +269,10 @@ private struct BrandMark: View {
         .foregroundStyle(Color.purple.gradient)
         .widgetAccentable()
         .accessibilityHidden(true)
+    }
+
+    static func height(index: Int, bar: CGFloat, room: CGFloat) -> CGFloat {
+        max(bar, room * CGFloat(Brand.barHeights[index]))
     }
 }
 
