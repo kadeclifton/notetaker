@@ -1,4 +1,5 @@
 #if os(macOS)
+import AppKit
 import SwiftUI
 import MurmurCore
 
@@ -157,6 +158,63 @@ struct StyleChip: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(Capsule().fill(Self.color(style).opacity(0.15)))
+    }
+}
+
+/// The system search field (magnifying glass, clear button), for a sidebar.
+struct SearchField: NSViewRepresentable {
+    @Binding var text: String
+    var prompt = "Search"
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = prompt
+        field.delegate = context.coordinator
+        // The clear button reports through the action, not as a text change.
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.changed(_:))
+        field.sendsSearchStringImmediately = true
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        context.coordinator.text = $text
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    @MainActor
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            text.wrappedValue = field.stringValue
+        }
+
+        @objc func changed(_ sender: NSSearchField) {
+            text.wrappedValue = sender.stringValue
+        }
+    }
+}
+
+/// A key name drawn like the key: "fn", "esc", "fn⌃".
+struct KeyCap: View {
+    let name: String
+    init(_ name: String) { self.name = name }
+
+    var body: some View {
+        Text(name)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(.quaternary))
+            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(.tertiary, lineWidth: 0.5))
     }
 }
 

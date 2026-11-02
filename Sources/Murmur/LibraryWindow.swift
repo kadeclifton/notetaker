@@ -162,16 +162,18 @@ struct LibraryView: View {
             if model.section == .compose { composeList } else { meetingList }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            Picker("Show", selection: $model.section) {
-                ForEach(LibrarySection.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            VStack(spacing: 8) {
+                Picker("Show", selection: $model.section) {
+                    ForEach(LibrarySection.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                SearchField(text: $model.query, prompt: model.section == .meetings ? "Search meetings" : "Search writing")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .padding(.horizontal, 10)
+            .padding(.top, 8)
             .padding(.bottom, 6)
         }
-        .searchable(text: $model.query, placement: .sidebar,
-                    prompt: model.section == .meetings ? "Search meetings" : "Search writing")
     }
 
     private var composeList: some View {

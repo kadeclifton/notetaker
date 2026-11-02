@@ -462,9 +462,15 @@ final class DictationController {
     /// "fn dictate · fn⌃ clean up · fn⌃⌥ compose", for the menu.
     var modesDescription: String {
         guard hasModes else { return "hold \(hotkeyDescription) to \(config.modes.hotkey.title.lowercased())" }
+        return modeHints.map { "\($0.keys) \($0.action)" }.joined(separator: " · ")
+    }
+
+    /// The keys to hold and what each does, for the menu's key caps: ("fn⌃", "clean up").
+    var modeHints: [(keys: String, action: String)] {
+        guard hasModes else { return [(hotkeyDescription, config.modes.hotkey.title.lowercased())] }
         return ModeKeys.allCases.map { keys in
-            "\(keys.label(hotkey: hotkeyDescription)) \(config.modes.mode(for: keys).title.lowercased())"
-        }.joined(separator: " · ")
+            (keys.label(hotkey: hotkeyDescription), config.modes.mode(for: keys).title.lowercased())
+        }
     }
 
     var plainMode: DictationMode { config.modes.hotkey }

@@ -136,7 +136,9 @@ tccutil reset ScreenCapture com.github.kadeclifton.murmur
 
 Click the wave in the menu bar:
 
-- **Status line**: "Ready", or **⚠️ Finish Setup…** when something needs fixing (click it).
+- **A card at the top**: Murmur's state (Ready, Recording, Off…), today's words and time saved, and
+  key caps for what each key combination does. **Finish Setup…** appears under it when something
+  needs fixing (click it).
 - **Dictation** (⌘E): on/off.
 - **Start Meeting Notes** (⌘M in the menu, ⌃⌥M anywhere); while recording, **Live Transcript…**.
 - **Library…** (⌘L): everything Compose has written, and every meeting's notes, grouped by day and

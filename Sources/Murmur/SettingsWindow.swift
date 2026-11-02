@@ -21,15 +21,13 @@ final class SettingsWindowController {
         if let tab { model.tab = tab }
         model.refresh()
         if window == nil {
+            // A plain titled window hosting a plain HStack: in 0.2.5 a NavigationSplitView with the
+            // title and toolbar bridged into this window drew nothing at all.
             let window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.size),
-                                  styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                                  styleMask: [.titled, .closable, .miniaturizable, .resizable],
                                   backing: .buffered, defer: false)
             window.title = "Murmur Settings"
-            // Like System Settings: the sidebar runs to the top, the page's name is the window title.
-            window.toolbarStyle = .unified
-            let hosting = NSHostingView(rootView: SettingsView(model: model))
-            hosting.sceneBridgingOptions = [.title, .toolbars]
-            window.contentView = hosting
+            window.contentView = NSHostingView(rootView: SettingsView(model: model))
             window.contentMinSize = Self.minSize
             window.isReleasedWhenClosed = false
             window.setFrameAutosaveName("MurmurSettings")
@@ -304,24 +302,27 @@ private struct SettingsView: View {
     /// A sidebar with every section named and searchable, like System Settings, rather than a tab
     /// bar whose icons can end up folded behind a » button.
     var body: some View {
-        NavigationSplitView {
-            List(selection: Binding(get: { model.tab }, set: { if let tab = $0 { model.tab = tab } })) {
-                ForEach(matches, id: \.self) { tab in
-                    Label { Text(tab.rawValue) } icon: { SettingsIcon(tab: tab) }
-                        .tag(tab)
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                SearchField(text: $query, prompt: "Search")
+                    .padding(.horizontal, 10)
+                    .padding(.top, 10)
+                    .padding(.bottom, 4)
+                List(selection: Binding(get: { model.tab }, set: { if let tab = $0 { model.tab = tab } })) {
+                    ForEach(matches, id: \.self) { tab in
+                        Label { Text(tab.rawValue) } icon: { SettingsIcon(tab: tab) }
+                            .tag(tab)
+                    }
+                }
+                .listStyle(.sidebar)
+                .overlay {
+                    if matches.isEmpty { Text("No Results").foregroundStyle(.secondary) }
                 }
             }
-            .listStyle(.sidebar)
-            .searchable(text: $query, placement: .sidebar, prompt: "Search")
-            .overlay {
-                if matches.isEmpty { ContentUnavailableView.search(text: query) }
-            }
-            .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
-            .toolbar(removing: .sidebarToggle)
-        } detail: {
+            .frame(width: 210)
+            Divider()
             page
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .navigationTitle(model.tab.rawValue)
         }
         .frame(minWidth: SettingsWindowController.minSize.width, minHeight: SettingsWindowController.minSize.height)
         // Searching jumps to the first page that has it, unless the open page does.

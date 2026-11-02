@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import SwiftUI
 import MurmurCore
 
 /// The menu bar icon and its menu.
@@ -77,20 +78,20 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         controller.detectLocalLLM()
 
-        menu.addItem(statusLine())
-        let dictation = item("Dictation", action: #selector(toggleEnabled), key: "e")
+        menu.addItem(headerItem())
+        if let fix = fixItem() { menu.addItem(fix) }
+        menu.addItem(.separator())
+
+        let dictation = item("Dictation", action: #selector(toggleEnabled), key: "e", symbol: "mic")
         dictation.state = controller.enabled ? .on : .off
         menu.addItem(dictation)
-
-        menu.addItem(.separator())
         addMeetingItems(to: menu)
-        menu.addItem(item("Library…", action: #selector(showLibrary), key: "l"))
-        menu.addItem(submenu("Recent", recentMenu()))
 
         menu.addItem(.separator())
-        menu.addItem(submenu("Snippets", snippetsMenu()))
-        menu.addItem(submenu("Vocabulary", vocabularyMenu()))
-        menu.addItem(item("Settings…", action: #selector(showSettingsWindow), key: ","))
+        menu.addItem(item("Library…", action: #selector(showLibrary), key: "l", symbol: "books.vertical"))
+        menu.addItem(submenu("Recent", recentMenu(), symbol: "clock.arrow.circlepath"))
+        menu.addItem(submenu("Snippets", snippetsMenu(), symbol: "text.badge.plus"))
+        menu.addItem(submenu("Vocabulary", vocabularyMenu(), symbol: "character.book.closed"))
 
         let update = updateItems()
         if !update.isEmpty {
@@ -99,22 +100,49 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
-        menu.addItem(item("Quit Murmur", action: #selector(quit), key: "q"))
+        menu.addItem(item("Settings…", action: #selector(showSettingsWindow), key: ",", symbol: "gearshape"))
+        menu.addItem(item("Quit Murmur", action: #selector(quit), key: "q", symbol: "power"))
     }
 
-    /// One line saying what state Murmur is in, which opens the fix when something is wrong.
-    private func statusLine() -> NSMenuItem {
+    /// The card at the top: Murmur's state, today's dictation, and which keys do what.
+    private func headerItem() -> NSMenuItem {
+        let (status, color) = headerStatus
+        let today = controller.stats.summary(lastDays: 1)
+        let minutes = Int(today.minutesSaved.rounded())
+        let line = today.words == 0
+            ? "Nothing dictated yet today"
+            : "\(today.words.formatted()) words today" + (minutes > 0 ? " · \(minutes) min saved" : "")
+        let header = MenuHeader(status: status, color: color, today: line,
+                                hints: controller.enabled ? controller.modeHints : [])
+        let view = NSHostingView(rootView: header)
+        view.frame = NSRect(origin: .zero, size: view.fittingSize)
+        view.setAccessibilityElement(true)
+        view.setAccessibilityLabel("Murmur, \(status). \(line).")
+        let item = NSMenuItem()
+        item.view = view
+        return item
+    }
+
+    private var headerStatus: (String, Color) {
+        if controller.needsSetup { return ("Set Up", .orange) }
+        if !controller.problems.isEmpty { return ("Needs Attention", .orange) }
+        if controller.meeting != nil { return ("Recording", .red) }
+        if controller.isRecording { return ("Listening", .red) }
+        if !controller.enabled { return ("Off", .gray) }
+        if controller.isWorking { return ("Working", .blue) }
+        return ("Ready", .green)
+    }
+
+    /// Under the card when something needs fixing; it opens the fix.
+    private func fixItem() -> NSMenuItem? {
         if controller.needsSetup {
-            return item("⚠️ Finish Setup…", action: #selector(showSetup))
+            return item("Finish Setup…", action: #selector(showSetup), symbol: "exclamationmark.triangle.fill")
         }
-        if let problem = controller.problems.first {
-            let line = item("⚠️ " + problem, action: #selector(showProblems))
-            line.toolTip = problem
-            if line.title.count > 60 { line.title = String(line.title.prefix(57)) + "…" }
-            return line
-        }
-        if !controller.enabled { return info("Dictation is off") }
-        return info("Ready · " + controller.modesDescription)
+        guard let problem = controller.problems.first else { return nil }
+        let line = item(problem, action: #selector(showProblems), symbol: "exclamationmark.triangle.fill")
+        line.toolTip = problem
+        if line.title.count > 60 { line.title = String(line.title.prefix(57)) + "…" }
+        return line
     }
 
     /// Just above Quit, like other menu bar apps: the update downloads by itself, then one click
@@ -122,15 +150,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private func updateItems() -> [NSMenuItem] {
         switch controller.updater.state {
         case let .downloading(release):
-            return [info("Downloading Murmur \(release.tag)…")]
+            return [info("Downloading Murmur \(release.tag)…", symbol: "arrow.down.circle")]
         case let .ready(release, _):
-            return [info("An update is available (\(release.tag))"), whatsNew(release),
-                    item("Restart to Update", action: #selector(restartToUpdate))].compactMap { $0 }
+            return [info("An update is available (\(release.tag))", symbol: "arrow.down.circle"), whatsNew(release),
+                    item("Restart to Update", action: #selector(restartToUpdate), symbol: "arrow.clockwise")].compactMap { $0 }
         case let .available(release):
-            return [info("An update is available (\(release.tag))"), whatsNew(release),
-                    item("Download and Restart", action: #selector(restartToUpdate))].compactMap { $0 }
+            return [info("An update is available (\(release.tag))", symbol: "arrow.down.circle"), whatsNew(release),
+                    item("Download and Restart", action: #selector(restartToUpdate), symbol: "arrow.clockwise")].compactMap { $0 }
         case let .installing(step):
-            return [info(step)]
+            return [info(step, symbol: "arrow.down.circle")]
         case .idle, .checking, .upToDate, .failed:
             return []
         }
@@ -140,13 +168,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private func whatsNew(_ release: ReleaseInfo) -> NSMenuItem? {
         let highlights = release.highlights
         guard !highlights.isEmpty else { return nil }
-        let submenu = NSMenu()
-        for line in highlights { submenu.addItem(item("• " + line, action: #selector(openReleaseNotes))) }
-        submenu.addItem(.separator())
-        submenu.addItem(item("Full Release Notes…", action: #selector(openReleaseNotes)))
-        let parent = NSMenuItem(title: "What's New in \(release.tag)", action: nil, keyEquivalent: "")
-        parent.submenu = submenu
-        return parent
+        let notes = NSMenu()
+        for line in highlights { notes.addItem(item("• " + line, action: #selector(openReleaseNotes))) }
+        notes.addItem(.separator())
+        notes.addItem(item("Full Release Notes…", action: #selector(openReleaseNotes)))
+        return submenu("What's New in \(release.tag)", notes, symbol: "sparkles")
     }
 
     @objc private func openReleaseNotes() {
@@ -155,13 +181,14 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     private func addMeetingItems(to menu: NSMenu) {
         if let status = controller.meetingStatus {
-            menu.addItem(info("Meeting Notes: \(status)"))
+            menu.addItem(info("Meeting Notes: \(status)", symbol: "hourglass"))
         } else if let meeting = controller.meeting {
-            menu.addItem(item("Stop Meeting Notes · \(MeetingTranscript.clock(meeting.elapsed))", action: #selector(stopMeeting), key: "m"))
-            menu.addItem(item("Live Transcript…", action: #selector(showLiveMeeting)))
-            if let warning = meeting.warnings.last { menu.addItem(info("⚠️ " + warning)) }
+            menu.addItem(item("Stop Meeting Notes · \(MeetingTranscript.clock(meeting.elapsed))", action: #selector(stopMeeting),
+                              key: "m", symbol: "stop.circle"))
+            menu.addItem(item("Live Transcript…", action: #selector(showLiveMeeting), symbol: "text.bubble"))
+            if let warning = meeting.warnings.last { menu.addItem(info(warning, symbol: "exclamationmark.triangle")) }
         } else {
-            menu.addItem(item("Start Meeting Notes", action: #selector(startMeeting), key: "m"))
+            menu.addItem(item("Start Meeting Notes", action: #selector(startMeeting), key: "m", symbol: "record.circle"))
         }
     }
 
@@ -169,11 +196,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private func recentMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let undo = item("Undo Last Dictation", action: #selector(undoLastDictation))
+        let undo = item("Undo Last Dictation", action: #selector(undoLastDictation), symbol: "arrow.uturn.backward")
         undo.isEnabled = controller.canUndoLastDictation
         undo.toolTip = "Sends ⌘Z to the app it went into. Or just say \u{201C}scratch that\u{201D}."
         menu.addItem(undo)
-        let fix = item("Fix a Word…", action: #selector(addCorrection))
+        let fix = item("Fix a Word…", action: #selector(addCorrection), symbol: "character.cursor.ibeam")
         fix.toolTip = "Always write a word it keeps getting wrong the way it should be."
         menu.addItem(fix)
         menu.addItem(.separator())
@@ -185,15 +212,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         for entry in items {
-            let marker = entry.mode == .compose ? "✦ " : ""
-            let choice = item(marker + entry.preview, action: #selector(copyRecent(_:)))
+            let choice = item(entry.preview, action: #selector(copyRecent(_:)),
+                              symbol: entry.mode == .compose ? "sparkles" : "text.quote")
             choice.representedObject = entry.id.uuidString
             choice.toolTip = "\(formatter.localizedString(for: entry.date, relativeTo: Date())) · click to copy"
             menu.addItem(choice)
         }
         menu.addItem(.separator())
         menu.addItem(info("Click one to copy it. Kept only until Murmur quits."))
-        menu.addItem(item("Clear", action: #selector(clearRecent)))
+        menu.addItem(item("Clear", action: #selector(clearRecent), symbol: "trash"))
         return menu
     }
 
@@ -201,7 +228,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private func snippetsMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        menu.addItem(item("Add Snippet…", action: #selector(addSnippet)))
+        menu.addItem(item("Add Snippet…", action: #selector(addSnippet), symbol: "plus"))
         let snippets = controller.snippets
         if snippets.isEmpty {
             menu.addItem(info("Say a phrase, get saved text: \u{201C}my email\u{201D} → your address"))
@@ -218,7 +245,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             menu.addItem(info("Click one to type it where you are"))
         }
         menu.addItem(.separator())
-        menu.addItem(item("Edit Snippets…", action: #selector(editSnippets)))
+        menu.addItem(item("Edit Snippets…", action: #selector(editSnippets), symbol: "pencil"))
         return menu
     }
 
@@ -226,7 +253,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private func vocabularyMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        menu.addItem(item("Add Word…", action: #selector(addVocabularyWord)))
+        menu.addItem(item("Add Word…", action: #selector(addVocabularyWord), symbol: "plus"))
         let words = controller.vocabulary
         if words.isEmpty {
             menu.addItem(info("Names and jargon Whisper keeps getting wrong"))
@@ -243,26 +270,37 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         return menu
     }
 
-    private func submenu(_ title: String, _ menu: NSMenu) -> NSMenuItem {
+    private func submenu(_ title: String, _ menu: NSMenu, symbol: String? = nil) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.submenu = menu
+        item.image = symbol.flatMap(Self.icon)
         return item
     }
 
-    private func item(_ title: String, action: Selector, key: String = "") -> NSMenuItem {
+    private func item(_ title: String, action: Selector, key: String = "", symbol: String? = nil) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
+        item.image = symbol.flatMap(Self.icon)
         return item
     }
 
-    private func info(_ title: String) -> NSMenuItem {
+    private func info(_ title: String, symbol: String? = nil) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
+        item.image = symbol.flatMap(Self.icon)
         if title.count > 90 {
             item.toolTip = title
             item.title = String(title.prefix(87)) + "…"
         }
         return item
+    }
+
+    /// An SF Symbol sized for a menu row; macOS tints it with the row's text.
+    private static func icon(_ name: String) -> NSImage? {
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
+        image?.isTemplate = true
+        return image
     }
 
     // MARK: Actions
@@ -416,6 +454,74 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         alert.informativeText = text
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
+    }
+}
+
+/// The top of the menu, as a card: Murmur's bars and state, today's dictation, and key caps for
+/// what each key combination does.
+private struct MenuHeader: View {
+    let status: String
+    let color: Color
+    let today: String
+    let hints: [(keys: String, action: String)]
+
+    static let width: CGFloat = 300
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                BrandBars()
+                Text("Murmur").font(.system(size: 13, weight: .semibold))
+                Spacer(minLength: 8)
+                HStack(spacing: 5) {
+                    Circle().fill(color).frame(width: 7, height: 7)
+                    Text(status).font(.system(size: 11, weight: .medium))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(color.opacity(0.15)))
+            }
+            Text(today).font(.system(size: 12)).foregroundStyle(.secondary)
+            if !hints.isEmpty {
+                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
+                    ForEach(Array(stride(from: 0, to: hints.count, by: 2)), id: \.self) { row in
+                        GridRow {
+                            hint(hints[row])
+                            if row + 1 < hints.count { hint(hints[row + 1]) }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+        .frame(width: Self.width, alignment: .leading)
+    }
+
+    private func hint(_ hint: (keys: String, action: String)) -> some View {
+        HStack(spacing: 5) {
+            KeyCap(hint.keys)
+            Text(hint.action).font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Murmur's 13 bars in its purple.
+private struct BrandBars: View {
+    var body: some View {
+        HStack(alignment: .center, spacing: 1) {
+            ForEach(MenuBarIcon.heights.indices, id: \.self) { index in
+                Capsule().frame(width: 1.5, height: Self.height(index))
+            }
+        }
+        .frame(height: 12)
+        .foregroundStyle(Color.purple.gradient)
+        .accessibilityHidden(true)
+    }
+
+    static func height(_ index: Int) -> CGFloat {
+        max(1.5, 12 * MenuBarIcon.heights[index])
     }
 }
 #endif

@@ -515,21 +515,6 @@ private struct ThinkingBars: View {
     }
 }
 
-/// A key name drawn like the key: "fn", "esc".
-private struct KeyCap: View {
-    let name: String
-    init(_ name: String) { self.name = name }
-
-    var body: some View {
-        Text(name)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(.quaternary))
-            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(.tertiary, lineWidth: 0.5))
-    }
-}
-
 /// "Clean Up" or "Compose" next to "Listening"; nothing for plain dictation.
 private struct ModeTag: View {
     var mode: DictationMode
