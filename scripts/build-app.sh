@@ -37,7 +37,9 @@ fi
 
 # Apple Silicon only: whisper.cpp is too slow on Intel Macs for dictation to feel instant.
 swift build -c release --arch arm64 --product Murmur
-BIN="$(swift build -c release --arch arm64 --show-bin-path)/Murmur"
+swift build -c release --arch arm64 --product MurmurWidgets
+BIN_DIR="$(swift build -c release --arch arm64 --show-bin-path)"
+BIN="$BIN_DIR/Murmur"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -60,6 +62,13 @@ fi
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
+# The desktop widget: an app extension, which macOS finds inside the app and runs sandboxed.
+APPEX="$APP/Contents/PlugIns/MurmurWidgets.appex"
+mkdir -p "$APPEX/Contents/MacOS"
+cp "$BIN_DIR/MurmurWidgets" "$APPEX/Contents/MacOS/MurmurWidgets"
+strip -x "$APPEX/Contents/MacOS/MurmurWidgets"
+cp "$ROOT/Resources/Widgets-Info.plist" "$APPEX/Contents/Info.plist"
+
 # macOS 26 icons (light, dark, clear, tinted) are compiled from Resources/AppIcon.icon by Xcode's
 # actool, which needs Xcode 26 running on macOS 26. Otherwise the flat AppIcon.icns above is used,
 # which works on every macOS.
@@ -81,9 +90,32 @@ if xcrun --find actool >/dev/null 2>&1; then
     rm -rf "$ICON_TMP"
 fi
 if [[ -n "${MURMUR_VERSION:-}" ]]; then
-    # Release builds: stamp the version from the tag (v0.2.0 → 0.2.0).
-    plutil -replace CFBundleShortVersionString -string "${MURMUR_VERSION#v}" "$APP/Contents/Info.plist"
-    plutil -replace CFBundleVersion -string "${MURMUR_BUILD:-1}" "$APP/Contents/Info.plist"
+    # Release builds: stamp the version from the tag (v0.2.0 → 0.2.0), on the widget too.
+    for plist in "$APP/Contents/Info.plist" "$APPEX/Contents/Info.plist"; do
+        plutil -replace CFBundleShortVersionString -string "${MURMUR_VERSION#v}" "$plist"
+        plutil -replace CFBundleVersion -string "${MURMUR_BUILD:-1}" "$plist"
+    done
+fi
+
+# The app group Murmur shares with its widget (Murmur writes the numbers, the widget reads them).
+# On a Mac its name must start with the Team ID of the certificate that signs both, so only
+# Developer ID builds get one; other builds' widget asks you to open Murmur.
+ENTITLEMENTS_DIR="$(mktemp -d)"
+trap 'rm -rf "$ENTITLEMENTS_DIR"' EXIT
+APP_ENTITLEMENTS="$ENTITLEMENTS_DIR/Murmur.entitlements"
+WIDGET_ENTITLEMENTS="$ENTITLEMENTS_DIR/MurmurWidgets.entitlements"
+cp "$ROOT/Resources/Murmur.entitlements" "$APP_ENTITLEMENTS"
+cp "$ROOT/Resources/MurmurWidgets.entitlements" "$WIDGET_ENTITLEMENTS"
+APP_GROUP=""
+if [[ "$IDENTITY" == "Developer ID Application:"* && "$IDENTITY" =~ \(([A-Z0-9]{10})\)$ ]]; then
+    APP_GROUP="${BASH_REMATCH[1]}.$BUNDLE_ID"
+    for file in "$APP_ENTITLEMENTS" "$WIDGET_ENTITLEMENTS"; do
+        /usr/libexec/PlistBuddy -c "Add :com.apple.security.application-groups array" \
+            -c "Add :com.apple.security.application-groups:0 string $APP_GROUP" "$file"
+    done
+    for plist in "$APP/Contents/Info.plist" "$APPEX/Contents/Info.plist"; do
+        /usr/libexec/PlistBuddy -c "Add :MurmurAppGroup string $APP_GROUP" "$plist"
+    done
 fi
 # The secure timestamp comes from Apple's server, which now and then does not answer.
 sign_with_retry() {
@@ -100,23 +132,31 @@ sign_with_retry() {
     done
 }
 
-# Helpers first: the app's signature seals them as they are.
+# Helpers and the widget first: the app's signature seals them as they are.
 if [[ "$IDENTITY" == "Developer ID Application:"* ]]; then
     # What notarization requires: hardened runtime, a secure timestamp, and the entitlements
     # the hardened runtime would otherwise withhold (the microphone).
     for helper in ${HELPERS[@]+"${HELPERS[@]}"}; do
         sign_with_retry --force --sign "$IDENTITY" --options runtime --timestamp "$helper"
     done
+    sign_with_retry --force --sign "$IDENTITY" --options runtime --timestamp \
+        --entitlements "$WIDGET_ENTITLEMENTS" "$APPEX"
     sign_with_retry --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" --options runtime --timestamp \
-        --entitlements "$ROOT/Resources/Murmur.entitlements" "$APP"
+        --entitlements "$APP_ENTITLEMENTS" "$APP"
 else
     for helper in ${HELPERS[@]+"${HELPERS[@]}"}; do
         codesign --force --sign "$IDENTITY" "$helper"
     done
+    codesign --force --sign "$IDENTITY" --entitlements "$WIDGET_ENTITLEMENTS" "$APPEX"
     codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"
 fi
 
 [[ ${#HELPERS[@]} -gt 0 ]] && ICON_NOTE="$ICON_NOTE, whisper.cpp $(cat "$ROOT/build/whisper/VERSION") with Core ML"
+if [[ -n "$APP_GROUP" ]]; then
+    ICON_NOTE="$ICON_NOTE, desktop widget sharing $APP_GROUP"
+else
+    ICON_NOTE="$ICON_NOTE, desktop widget (its numbers need a Developer ID build)"
+fi
 if [[ "$IDENTITY" == "-" ]]; then
     echo "Built $APP (ad-hoc signed, $ICON_NOTE)"
     echo "Tip: run scripts/setup-signing.sh once so macOS permissions survive rebuilds."

@@ -8,7 +8,7 @@ for the stressed MUR, a dip where the second "m" hums, then a smaller mur that t
 bars on a violet-to-blue gradient, in the macOS app-icon shape: an 824 pt rounded square
 ("squircle") centered on a 1024 pt canvas with a soft shadow.
 
-The menu bar icon draws the same heights (Sources/Murmur/MenuBarIcon.swift); keep them in sync.
+The app draws the same heights (Sources/MurmurCore/Brand.swift); keep them in sync.
 
     pip install pillow numpy
     python3 scripts/make-icon.py                    # the built-in "murmur" shape

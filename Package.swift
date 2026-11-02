@@ -6,6 +6,8 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "Murmur", targets: ["Murmur"]),
+        // The desktop widget; scripts/build-app.sh wraps it into Murmur.app/Contents/PlugIns/MurmurWidgets.appex.
+        .executable(name: "MurmurWidgets", targets: ["MurmurWidgets"]),
     ],
     targets: [
         // Platform-independent logic: config, hotkey state machine, transcription
@@ -23,6 +25,16 @@ let package = Package(
                 .linkedFramework("ScreenCaptureKit", .when(platforms: [.macOS])),
                 .linkedFramework("CoreMedia", .when(platforms: [.macOS])),
                 .linkedFramework("Speech", .when(platforms: [.macOS])),
+                .linkedFramework("WidgetKit", .when(platforms: [.macOS])),
+            ]
+        ),
+        // The widget: sandboxed, separate from the app, reading what the app writes to their app group.
+        .executableTarget(
+            name: "MurmurWidgets",
+            dependencies: ["MurmurCore"],
+            linkerSettings: [
+                .linkedFramework("SwiftUI", .when(platforms: [.macOS])),
+                .linkedFramework("WidgetKit", .when(platforms: [.macOS])),
             ]
         ),
         .testTarget(name: "MurmurCoreTests", dependencies: ["MurmurCore"]),

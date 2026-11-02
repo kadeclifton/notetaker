@@ -36,6 +36,17 @@
 	<string>Murmur can use the speech recognition built into macOS to turn what you say into text, on this Mac.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Murmur records the call's audio during Meeting Notes, so the other people's words are in your notes.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.github.kadeclifton.murmur</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>murmur</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>
