@@ -259,23 +259,18 @@ final class DictationController {
         onChange?()
         Task { [weak self] in
             guard let self else { return }
-            // A local model may have been started since launch.
-            self.localLLM = await LocalLLM.detect()
-            self.refreshModels()
+            // A local model may have been started since launch. Look while the recording starts
+            // rather than before: only the summary at the end needs it.
+            async let detected = LocalLLM.detect()
             do {
                 let language = self.config.transcription.language.lowercased()
                 let vocabulary = self.config.transcription.vocabulary.filter { !$0.isEmpty }
-                let m = self.config.meeting
                 let setup = MeetingRecorder.Setup(
-                    config: m,
+                    config: self.config.meeting,
                     transcriber: try self.config.makeTranscriber(env: self.env),
                     language: language.isEmpty || language == "auto" ? nil : language,
                     prompt: vocabulary.isEmpty ? nil : vocabulary.joined(separator: ", ") + ".",
-                    summarizer: m.summarize
-                        ? try? self.config.makeChatModel(provider: m.summaryProvider, model: m.summaryModel,
-                                                         baseURL: self.config.cleanup.baseURL, env: self.env, local: self.localLLM,
-                                                         purpose: .summary)
-                        : nil,
+                    summarizer: self.meetingSummarizer(),
                     corrections: self.config.transcription.corrections)
                 let recorder = try await MeetingRecorder.start(setup)
                 recorder.onChange = { [weak self] in self?.onChange?() }
@@ -291,7 +286,21 @@ final class DictationController {
             }
             self.meetingStatus = nil
             self.onChange?()
+            let found = await detected
+            guard found != self.localLLM else { return }
+            self.localLLM = found
+            self.refreshModels()
+            self.meeting?.summarizer = self.meetingSummarizer()
+            self.onChange?()
         }
+    }
+
+    /// The model that writes a meeting's summary, or nil when summaries are off or none is set up.
+    private func meetingSummarizer() -> ChatModel? {
+        let m = config.meeting
+        guard m.summarize else { return nil }
+        return try? config.makeChatModel(provider: m.summaryProvider, model: m.summaryModel, baseURL: config.cleanup.baseURL,
+                                         env: env, local: localLLM, purpose: .summary)
     }
 
     /// The Meeting Notes shortcut: starts notes, or stops and summarizes the meeting being recorded.
@@ -1241,6 +1250,9 @@ final class DictationController {
         let job = Task { [weak self] in
             guard let self else { return }
             do {
+                // What you said is transcribed while the selection is read; neither needs the other.
+                // (Without a selection, leaving this scope cancels the transcription.)
+                async let transcribed = pipeline.run(samples: samples, incremental: await early?.value, context: context)
                 // Read the selection before anything else can change it.
                 guard let selection = await self.inserter.selectedText() else {
                     if let early { await early.value?.cancel() }
@@ -1248,7 +1260,7 @@ final class DictationController {
                     self.fail(EditError.noSelection.description)
                     return
                 }
-                let result = try await pipeline.run(samples: samples, incremental: await early?.value, context: context)
+                let result = try await transcribed
                 try Task.checkCancellation()
                 guard !result.transcript.isEmpty else {
                     self.finishJob(id, message: "No speech heard")
@@ -1441,7 +1453,7 @@ final class DictationController {
     private func updateWidget(urgent: Bool = false) {
         guard widget.isAvailable else { return }
         if !widgetMeetingRead {
-            widgetMeeting = MeetingStore(config: config.meeting).list().first
+            widgetMeeting = MeetingStore(config: config.meeting).latest()
             widgetMeetingRead = true
         }
         let started = meeting.map { Date().addingTimeInterval(-$0.elapsed) }

@@ -133,10 +133,13 @@ public struct LocalLLM: Sendable, Equatable {
     public static let ollama = (name: "Ollama", root: URL(string: "http://127.0.0.1:11434")!)
     public static let lmStudio = (name: "LM Studio", root: URL(string: "http://127.0.0.1:1234")!)
 
-    /// Looks for Ollama, then LM Studio. Quick: each probe gives up after a second.
+    /// Looks for Ollama and LM Studio at the same time, preferring Ollama. Quick: each probe gives
+    /// up after a second, and asking both at once means a slow one costs that second only once.
     public static func detect(client: HTTPClient = URLSessionHTTPClient()) async -> LocalLLM? {
-        if let found = await probeOllama(client: client) { return found }
-        return await probeLMStudio(client: client)
+        async let ollama = probeOllama(client: client)
+        async let lmStudio = probeLMStudio(client: client)
+        if let found = await ollama { return found }
+        return await lmStudio
     }
 
     static func probeOllama(client: HTTPClient) async -> LocalLLM? {

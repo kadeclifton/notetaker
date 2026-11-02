@@ -297,19 +297,34 @@ public struct MeetingSummarizer: Sendable {
             return try await chat.complete(system: Self.notesSystem, user: "<transcript>\n\(parts[0])\n</transcript>",
                                            maxTokens: 2048, timeout: timeout)
         }
-        var partNotes: [String] = []
-        for (index, part) in parts.enumerated() {
-            try Task.checkCancellation()
-            let notes = try await chat.complete(system: Self.partSystem,
-                                                user: "Part \(index + 1) of \(parts.count):\n<transcript>\n\(part)\n</transcript>",
-                                                maxTokens: 1024, timeout: timeout)
-            partNotes.append("Notes on part \(index + 1):\n\(notes)")
-        }
+        let labeled = try await partNotes(parts).enumerated().map { "Notes on part \($0.offset + 1):\n\($0.element)" }
         return try await chat.complete(
             system: Self.notesSystem,
             user: "These are notes on each part of one meeting, in order. Combine them into the final notes.\n\n"
-                + partNotes.joined(separator: "\n\n"),
+                + labeled.joined(separator: "\n\n"),
             maxTokens: 2048, timeout: timeout)
+    }
+
+    /// Notes on each part, in order. As many parts at once as the model takes (`parallelRequests`):
+    /// a hosted API writes them side by side, a model on this Mac one after another.
+    func partNotes(_ parts: [String]) async throws -> [String] {
+        let chat = chat
+        let timeout = timeout
+        let width = max(1, chat.parallelRequests)
+        return try await withThrowingTaskGroup(of: (Int, String).self) { group in
+            var notes = [String](repeating: "", count: parts.count)
+            for (index, part) in parts.enumerated() {
+                try Task.checkCancellation()
+                // At most `width` in flight: wait for one to finish before starting the next.
+                if index >= width, let (done, text) = try await group.next() { notes[done] = text }
+                let user = "Part \(index + 1) of \(parts.count):\n<transcript>\n\(part)\n</transcript>"
+                group.addTask {
+                    (index, try await chat.complete(system: Self.partSystem, user: user, maxTokens: 1024, timeout: timeout))
+                }
+            }
+            for try await (index, text) in group { notes[index] = text }
+            return notes
+        }
     }
 
     static func split(_ lines: [String], wordsPerPart: Int) -> [String] {

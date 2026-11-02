@@ -29,13 +29,17 @@ struct AppleSpeechTranscriber: Transcriber {
 
     var name: String { "Apple speech (on this Mac)" }
 
+    /// Each clip gets its own analyzer, so meeting notes can transcribe both sides at once.
+    var takesConcurrentRequests: Bool { true }
+
     func transcribe(wav: Data, language: String?, prompt: String?) async throws -> String {
         try await transcribeSegments(wav: wav, language: language, prompt: prompt)
             .map(\.text).joined(separator: " ")
     }
 
     func transcribeSegments(wav: Data, language: String?, prompt: String?) async throws -> [TimedText] {
-        let transcriber = try await Self.transcriber(for: language ?? self.language)
+        let setting = language ?? self.language
+        let transcriber = try await Self.transcriber(for: setting)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("murmur-speech-\(UUID().uuidString).wav")
         try wav.write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -58,6 +62,8 @@ struct AppleSpeechTranscriber: Transcriber {
             }
         } catch {
             collector.cancel()
+            // Its model may have been removed since; check it again next time.
+            await Self.ready.forget(setting)
             throw error
         }
         return try await collector.value
@@ -69,18 +75,43 @@ struct AppleSpeechTranscriber: Transcriber {
         _ = try await transcriber(for: language)
     }
 
+    /// Languages already matched to a supported locale with its model installed. Every dictation,
+    /// and every 5 s piece while you talk, would otherwise ask macOS both questions again first.
+    private static let ready = ReadyLocales()
+
     private static func transcriber(for setting: String) async throws -> SpeechTranscriber {
+        if let locale = await ready.locale(for: setting) { return makeTranscriber(locale) }
         let code = setting.trimmingCharacters(in: .whitespaces).lowercased()
         let wanted = code.isEmpty || code == "auto" ? Locale.current : Locale(identifier: code)
         guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: wanted) else {
             throw AppleSpeechError.unsupportedLanguage(code.isEmpty || code == "auto" ? wanted.identifier : code)
         }
-        let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [], attributeOptions: [])
+        let transcriber = makeTranscriber(locale)
         if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
             try await request.downloadAndInstall()
         }
+        await ready.remember(locale, for: setting)
         return transcriber
     }
+
+    private static func makeTranscriber(_ locale: Locale) -> SpeechTranscriber {
+        SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [], attributeOptions: [])
+    }
+}
+
+/// The language setting ("en", "auto") → the locale it resolved to, once its model is installed.
+/// "auto" is keyed by the Mac's language at the time, so changing that resolves again.
+actor ReadyLocales {
+    private var locales: [String: Locale] = [:]
+
+    private func key(_ setting: String) -> String {
+        let code = setting.trimmingCharacters(in: .whitespaces).lowercased()
+        return code.isEmpty || code == "auto" ? "auto:" + Locale.current.identifier : code
+    }
+
+    func locale(for setting: String) -> Locale? { locales[key(setting)] }
+    func remember(_ locale: Locale, for setting: String) { locales[key(setting)] = locale }
+    func forget(_ setting: String) { locales[key(setting)] = nil }
 }
 #endif
 

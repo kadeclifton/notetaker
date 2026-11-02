@@ -9,6 +9,10 @@ are on the [releases page](https://github.com/kadeclifton/notetaker/releases).
   to a sidebar that always draws, still searchable and resizable.
 - **A nicer menu.** The menu bar menu opens with a card showing Murmur's state, today's words and
   time saved, and key caps for what each key combination does, and every item has an icon.
+- **Quicker meetings.** Meeting Notes start and stop the mic and the call's audio together, and
+  no longer wait to look for Ollama or LM Studio before recording. With Groq, OpenAI or Apple's
+  engine, your words and the call's are transcribed side by side, and a long meeting's summary is
+  written several parts at a time by a hosted model.
 
 ## 0.2.5
 

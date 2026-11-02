@@ -99,6 +99,11 @@ final class MeetingFilesTests: XCTestCase {
         }
         try Data("not a meeting".utf8).write(to: folder.appendingPathComponent("notes.md"))
         XCTAssertEqual(MeetingStore(folder: folder).list().map(\.title), ["2026-09-20 1000 Meeting.md", "2026-09-01 0900 Meeting.md"])
+        XCTAssertEqual(MeetingStore(folder: folder).latest()?.title, "2026-09-20 1000 Meeting.md")
+        // A newer file that is not meeting notes is skipped.
+        try Data("not a meeting".utf8).write(to: folder.appendingPathComponent("2026-09-30 0800 Meeting.md"))
+        XCTAssertEqual(MeetingStore(folder: folder).latest()?.title, "2026-09-20 1000 Meeting.md")
+        XCTAssertNil(MeetingStore(folder: folder.appendingPathComponent("missing")).latest())
     }
 }
 

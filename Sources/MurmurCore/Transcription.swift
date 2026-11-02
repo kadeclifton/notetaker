@@ -10,6 +10,10 @@ public protocol Transcriber: Sendable {
     /// The same, split into timed segments (seconds from the start of the clip). Meeting notes use
     /// these to interleave speakers sentence by sentence.
     func transcribeSegments(wav: Data, language: String?, prompt: String?) async throws -> [TimedText]
+    /// Whether two clips can be transcribed at the same time without slowing each other down.
+    /// Meeting notes then transcribe your words and the call's side by side. whisper.cpp on this
+    /// Mac works on one clip at a time (and a second whisper-cli would load the model again).
+    var takesConcurrentRequests: Bool { get }
 }
 
 public struct TimedText: Sendable, Equatable {
@@ -25,6 +29,8 @@ public struct TimedText: Sendable, Equatable {
 }
 
 extension Transcriber {
+    public var takesConcurrentRequests: Bool { false }
+
     /// Engines without timestamps return the whole clip as one segment.
     public func transcribeSegments(wav: Data, language: String?, prompt: String?) async throws -> [TimedText] {
         let text = try await transcribe(wav: wav, language: language, prompt: prompt)
@@ -78,6 +84,9 @@ public struct WhisperAPITranscriber: Transcriber {
     }
 
     public var name: String { "\(service) \(model)" }
+
+    /// Groq and OpenAI take several clips at once.
+    public var takesConcurrentRequests: Bool { true }
 
     public func transcribe(wav: Data, language: String?, prompt: String?) async throws -> String {
         var form = MultipartForm()

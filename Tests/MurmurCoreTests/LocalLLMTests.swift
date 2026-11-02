@@ -41,6 +41,29 @@ final class LocalLLMTests: XCTestCase {
         XCTAssertEqual(found?.models, ["qwen2.5-7b-instruct"])
     }
 
+    func testPrefersOllamaWhenBothRun() async {
+        let client = FakeHTTPClient { request in
+            switch request.url?.absoluteString {
+            case "http://127.0.0.1:11434/api/tags"?: return (200, #"{"models":[{"name":"llama3.2:3b"}]}"#)
+            case "http://127.0.0.1:1234/v1/models"?: return (200, #"{"data":[{"id":"qwen2.5-7b-instruct"}]}"#)
+            default: throw URLError(.cannotConnectToHost)
+            }
+        }
+        let found = await LocalLLM.detect(client: client)
+        XCTAssertEqual(found?.server, "Ollama")
+    }
+
+    func testParallelRequestsByWhereTheModelRuns() {
+        XCTAssertEqual(OpenAICompatibleChat(service: "Groq", baseURL: HostedAPI.groq.baseURL, apiKey: "k", model: "m").parallelRequests, 3)
+        XCTAssertEqual(OpenAICompatibleChat(service: "LM Studio", baseURL: LocalLLM.lmStudio.root, apiKey: nil, model: "m").parallelRequests, 1)
+        XCTAssertEqual(OpenAICompatibleChat(service: "llama.cpp", baseURL: URL(string: "http://192.168.1.20:8080/v1")!,
+                                            apiKey: nil, model: "m").parallelRequests, 1)
+        XCTAssertEqual(AnthropicChat(apiKey: "k", model: "m").parallelRequests, 3)
+        XCTAssertEqual(OllamaChat(model: "m").parallelRequests, 1)
+        XCTAssertTrue(WhisperAPITranscriber(service: "Groq", baseURL: HostedAPI.groq.baseURL, apiKey: "k", model: "m").takesConcurrentRequests)
+        XCTAssertFalse(WhisperCppTranscriber(binary: "/x", model: "/y").takesConcurrentRequests)
+    }
+
     func testNothingRunning() async {
         let client = FakeHTTPClient { _ in throw URLError(.cannotConnectToHost) }
         let found = await LocalLLM.detect(client: client)

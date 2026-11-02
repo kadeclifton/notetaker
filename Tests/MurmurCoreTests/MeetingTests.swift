@@ -3,10 +3,19 @@ import XCTest
 
 struct FakeChat: ChatModel {
     var name = "fake"
+    var parallelRequests = 1
     var reply: @Sendable (String, String) async throws -> String
     func complete(system: String, user: String, maxTokens: Int, timeout: TimeInterval) async throws -> String {
         try await reply(system, user)
     }
+}
+
+/// Counts calls running at the same time.
+actor InFlight {
+    private var now = 0
+    private(set) var most = 0
+    func enter() { now += 1; most = max(most, now) }
+    func leave() { now -= 1 }
 }
 
 final class ChatLog: @unchecked Sendable {
@@ -150,6 +159,64 @@ final class MeetingSummarizerTests: XCTestCase {
         XCTAssertTrue(log.calls[0].user.hasPrefix("Part 1 of 2:"))
         XCTAssertTrue(log.calls[2].user.contains("Notes on part 2:\nnotes"))
         XCTAssertEqual(log.calls[2].system, MeetingSummarizer.notesSystem)
+    }
+
+    /// Six turns of more than 8 words each: six parts at `wordsPerPart: 8`.
+    var longTranscript: MeetingTranscript {
+        MeetingTranscript(segments: (0..<6).map { index in
+            MeetingSegment(start: TimeInterval(index * 200), speaker: index.isMultiple(of: 2) ? .others : .me,
+                           text: "Point number \(index + 1) about the launch plan and the beta.")
+        })
+    }
+
+    func testHostedModelWritesPartsSideBySideInOrder() async throws {
+        let flight = InFlight()
+        let log = ChatLog()
+        var chat = FakeChat { system, user in
+            log.record(system, user)
+            guard system == MeetingSummarizer.partSystem else { return "final" }
+            await flight.enter()
+            try await Task.sleep(nanoseconds: 30_000_000)
+            await flight.leave()
+            let part = user.split(separator: " ")[1]
+            return "notes for \(part)"
+        }
+        chat.parallelRequests = 3
+        let summary = try await MeetingSummarizer(chat: chat, wordsPerPart: 8).summarize(longTranscript)
+        XCTAssertEqual(summary, "final")
+        let most = await flight.most
+        XCTAssertEqual(most, 3, "three parts at a time, never more")
+        let combine = try XCTUnwrap(log.calls.last).user
+        let order = (1...6).map { "Notes on part \($0):\nnotes for \($0)" }.joined(separator: "\n\n")
+        XCTAssertTrue(combine.hasSuffix(order), "the combine call lists the parts in order")
+    }
+
+    func testLocalModelWritesPartsOneAtATime() async throws {
+        let flight = InFlight()
+        let chat = FakeChat { system, _ in
+            guard system == MeetingSummarizer.partSystem else { return "final" }
+            await flight.enter()
+            try await Task.sleep(nanoseconds: 5_000_000)
+            await flight.leave()
+            return "notes"
+        }
+        _ = try await MeetingSummarizer(chat: chat, wordsPerPart: 8).summarize(longTranscript)
+        let most = await flight.most
+        XCTAssertEqual(most, 1)
+    }
+
+    func testAPartFailingFailsTheSummary() async {
+        var chat = FakeChat { system, user in
+            if system == MeetingSummarizer.partSystem, user.hasPrefix("Part 2 ") { throw URLError(.timedOut) }
+            return "notes"
+        }
+        chat.parallelRequests = 3
+        do {
+            _ = try await MeetingSummarizer(chat: chat, wordsPerPart: 8).summarize(longTranscript)
+            XCTFail("expected the part's error")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .timedOut)
+        }
     }
 
     func testEmptyTranscriptNeedsNoModel() async throws {
