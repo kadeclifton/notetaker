@@ -13,6 +13,16 @@ are on the [releases page](https://github.com/kadeclifton/notetaker/releases).
 - **Language.** Settings → Speech picks English, auto-detect, or another language.
 - **Never types into password fields.** The words stay on the clipboard instead, hidden from
   clipboard managers and kept out of Recent.
+- **A desktop widget.** Add Murmur to your desktop or Notification Center: today's words and the
+  time they saved, your week as bars, and your last meeting's highlights, with Start Notes and
+  Stop & Summarize buttons.
+- **A new pill.** Liquid Glass on macOS 26 (frosted glass before that), a live waveform of your
+  voice, smooth resizing as words come in, and a check mark with the word count when your text goes in.
+- **Settings, redesigned.** A searchable sidebar with colored icons, a header on every page, and a
+  window you can resize.
+- **Library and meetings, redesigned.** Lists grouped by day with previews, meeting notes with real
+  headings, bullets and check boxes, and transcripts as chat bubbles: yours on the right, everyone
+  else's on the left, in the Live Transcript too.
 
 ## 0.2.4
 

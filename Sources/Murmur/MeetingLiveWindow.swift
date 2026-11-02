@@ -40,6 +40,8 @@ final class MeetingLiveModel: ObservableObject {
     weak var controller: DictationController?
     @Published private(set) var turns: [MeetingSegment] = []
     @Published private(set) var elapsed: TimeInterval = 0
+    /// When the recording started, for a clock that ticks every second between refreshes.
+    @Published private(set) var started: Date?
     @Published private(set) var pending = 0
     @Published private(set) var status: String?
     @Published private(set) var recording = false
@@ -60,10 +62,14 @@ final class MeetingLiveModel: ObservableObject {
             let latest = meeting.liveTranscript.turns()
             if latest != turns { turns = latest }
             elapsed = meeting.elapsed
+            let start = Date().addingTimeInterval(-meeting.elapsed)
+            // Only move it when it drifts, so the clock does not jitter at each refresh.
+            if abs((started ?? .distantPast).timeIntervalSince(start)) > 1.5 { started = start }
             pending = meeting.piecesPending
             fileURL = meeting.fileURL
         } else {
             recording = false
+            started = nil
             // Once the meeting has finished writing (no status left), read its summary once.
             if !summaryRead, status == nil, let fileURL, let text = try? String(contentsOf: fileURL, encoding: .utf8) {
                 summaryRead = true
@@ -83,54 +89,75 @@ private struct MeetingLiveView: View {
     @ObservedObject var model: MeetingLiveModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Circle().fill(model.recording ? Color.red : Color.secondary).frame(width: 9, height: 9)
-                    .accessibilityHidden(true)
-                Text(header).font(.headline)
-                Spacer()
-                if model.summary != nil { CopyButton(title: "Copy Summary", text: model.summary) }
-                if model.fileURL != nil { Button("Open Notes") { model.openFile() } }
-                if model.recording && model.status == nil { Button("Stop") { model.stop() } }
-            }
-            .padding(12)
-            Divider()
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        if model.turns.isEmpty {
-                            Text(model.recording
-                                 ? "Listening… text appears here about every 30 seconds, as each piece is transcribed."
-                                 : "No meeting is being recorded.")
-                                .foregroundStyle(.secondary)
-                        }
-                        ForEach(Array(model.turns.enumerated()), id: \.offset) { index, turn in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(turn.speaker.rawValue) · \(MeetingTranscript.clock(turn.start))")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(turn.speaker == .me ? Color.purple : Color.secondary)
-                                Text(turn.text).textSelection(.enabled)
-                            }
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    ForEach(Array(model.turns.enumerated()), id: \.offset) { index, turn in
+                        TranscriptBubble(speaker: turn.speaker.rawValue, time: MeetingTranscript.clock(turn.start), text: turn.text)
                             .id(index)
-                        }
-                        if model.pending > 0 {
-                            Text("Transcribing…").font(.caption).foregroundStyle(.secondary).id("pending")
-                        }
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if model.pending > 0 {
+                        TypingIndicator().id("pending").transition(.opacity)
+                    }
                 }
-                .onChange(of: model.turns.count) { _, count in
-                    withAnimation { proxy.scrollTo(count - 1, anchor: .bottom) }
-                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .animation(.spring(response: 0.35, dampingFraction: 0.85), value: model.turns.count)
+                .animation(.easeOut(duration: 0.2), value: model.pending > 0)
+            }
+            .overlay {
+                if model.turns.isEmpty { emptyState }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) { statusBar }
+            .onChange(of: model.turns.count) { _, count in
+                withAnimation { proxy.scrollTo(count - 1, anchor: .bottom) }
             }
         }
         .frame(minWidth: 380, minHeight: 300)
     }
 
-    private var header: String {
-        if let status = model.status { return status }
-        return model.recording ? "Recording · \(MeetingTranscript.clock(model.elapsed))" : "Meeting ended"
+    private var emptyState: some View {
+        ContentUnavailableView {
+            Label(model.recording ? "Listening…" : "No meeting is being recorded",
+                  systemImage: model.recording ? "waveform" : "person.2.wave.2")
+        } description: {
+            Text(model.recording
+                 ? "Text appears here about every 30 seconds, as each piece is transcribed. Your words show on the right."
+                 : "Start Meeting Notes from the menu bar or with its shortcut.")
+        }
+    }
+
+    /// Recording light, clock and the actions, on a bar the transcript scrolls under.
+    private var statusBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 9))
+                .foregroundStyle(model.recording ? Color.red : Color.secondary)
+                .symbolEffect(.pulse, options: .repeating, isActive: model.recording && model.status == nil)
+                .accessibilityHidden(true)
+            if let status = model.status {
+                Text(status).font(.headline)
+            } else if model.recording, let started = model.started {
+                Text("Recording").font(.headline)
+                Text(started, style: .timer).monospacedDigit().foregroundStyle(.secondary)
+            } else {
+                Text("Meeting ended").font(.headline)
+            }
+            Spacer()
+            if model.summary != nil { CopyButton(title: "Copy Summary", text: model.summary) }
+            if model.fileURL != nil { Button("Open Notes") { model.openFile() } }
+            if model.recording && model.status == nil {
+                Button { model.stop() } label: { Label("Stop", systemImage: "stop.fill") }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
     }
 }
 #endif

@@ -75,8 +75,11 @@ Also set System Settings → Keyboard → **Press 🌐 key to: Do Nothing**, so 
   Input.
 - The **pill** (Listening, Transcribing) sits under the menu bar. Drag it wherever it's out of
   your way, or pick a spot in Settings… → General.
+- **The widget**: right-click your desktop → **Edit Widgets…**, search for Murmur, and drag it out.
+  It shows today's words, your week and your last meeting, and starts or stops Meeting Notes.
 - **Settings…** (⌘, from the menu) changes the hotkey (click Change… and press the key you want),
-  microphone, speech model, Neural Engine, vocabulary, snippets and meeting options.
+  microphone, speech model, Neural Engine, vocabulary, snippets and meeting options. Type in the
+  search field at the top of its sidebar to find a setting.
 - **Settings… → About → How to Use Murmur** shows all of this on one page.
 - **Meeting Notes** (menu bar icon → Start Meeting Notes) records a call and writes notes. It asks for Screen &
   System Audio Recording the first time, to hear the other people. When a call starts in Zoom, Teams,

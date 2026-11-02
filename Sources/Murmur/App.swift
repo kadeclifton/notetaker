@@ -34,6 +34,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.start()
     }
 
+    /// murmur:// links from the desktop widget.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls { controller?.open(url) }
+    }
+
     /// Quitting mid-meeting saves the transcript first (without waiting for a summary).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let controller, controller.meeting != nil else { return .terminateNow }

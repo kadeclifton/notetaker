@@ -9,8 +9,9 @@ final class SettingsWindowController {
     let model: SettingsModel
     private var window: NSWindow?
 
-    /// Room for the sidebar plus the pages at their usual width.
-    static let size = CGSize(width: 740, height: 500)
+    /// Room for the sidebar plus the pages at their usual width; the window can be made larger.
+    static let size = CGSize(width: 780, height: 560)
+    static let minSize = CGSize(width: 680, height: 460)
 
     init(controller: DictationController) {
         model = SettingsModel(controller: controller)
@@ -21,11 +22,18 @@ final class SettingsWindowController {
         model.refresh()
         if window == nil {
             let window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.size),
-                                  styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+                                  styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                                  backing: .buffered, defer: false)
             window.title = "Murmur Settings"
-            window.contentView = NSHostingView(rootView: SettingsView(model: model))
+            // Like System Settings: the sidebar runs to the top, the page's name is the window title.
+            window.toolbarStyle = .unified
+            let hosting = NSHostingView(rootView: SettingsView(model: model))
+            hosting.sceneBridgingOptions = [.title, .toolbars]
+            window.contentView = hosting
+            window.contentMinSize = Self.minSize
             window.isReleasedWhenClosed = false
-            window.center()
+            window.setFrameAutosaveName("MurmurSettings")
+            if window.frame.origin == .zero { window.center() }
             self.window = window
             NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.model.cancelHotkeyRecording() }
@@ -64,15 +72,105 @@ enum SettingsTab: String, CaseIterable {
     case meetings = "Meetings"
     case about = "About"
 
+    /// White on the tile's color, like System Settings.
     var symbol: String {
         switch self {
-        case .general: return "gearshape"
-        case .speech: return "mic"
+        case .general: return "gearshape.fill"
+        case .speech: return "mic.fill"
         case .writing: return "sparkles"
         case .snippets: return "text.badge.plus"
-        case .meetings: return "person.2.wave.2"
-        case .about: return "info.circle"
+        case .meetings: return "person.2.wave.2.fill"
+        case .about: return "info"
         }
+    }
+
+    var color: Color {
+        switch self {
+        case .general: return .gray
+        case .speech: return .red
+        case .writing: return .purple
+        case .snippets: return .blue
+        case .meetings: return .green
+        case .about: return .indigo
+        }
+    }
+
+    /// The line under the page's title.
+    var subtitle: String {
+        switch self {
+        case .general: return "Your hotkey, the pill, and how Murmur starts."
+        case .speech: return "How Murmur hears you: microphone, engine, language, and the words it should know."
+        case .writing: return "Clean Up and Compose: which models write for you, and how long they stay loaded."
+        case .snippets: return "Say a short phrase, get a whole block of text."
+        case .meetings: return "Notes for your calls: transcripts, summaries and the shortcut."
+        case .about: return "Version, updates, help, and the settings file."
+        }
+    }
+
+    /// Words the sidebar search finds the page by, besides its name and subtitle.
+    var keywords: [String] {
+        switch self {
+        case .general: return ["hotkey", "shortcut", "fn", "key", "paste last", "stats", "words", "launch at login",
+                               "startup", "sounds", "pill", "position", "dictation on", "off"]
+        case .speech: return ["microphone", "mic", "input", "engine", "whisper", "apple", "groq", "openai", "language",
+                              "model", "memory", "unload", "vocabulary", "corrections", "fix a word", "transcription"]
+        case .writing: return ["clean up", "cleanup", "compose", "ollama", "lm studio", "llm", "model", "library",
+                               "neural engine", "summaries", "keep loaded"]
+        case .snippets: return ["text replacement", "phrase", "insert", "signature", "email", "scratch that"]
+        case .meetings: return ["call", "zoom", "facetime", "teams", "meet", "transcript", "summary", "audio",
+                                "offer", "notes", "shortcut", "live transcript"]
+        case .about: return ["version", "update", "beta", "release notes", "what's new", "diagnostics", "help",
+                             "setup", "settings file", "api keys", "reload", "remove", "uninstall", "privacy", "problem"]
+        }
+    }
+
+    func matches(_ query: String) -> Bool {
+        let words = query.lowercased().split(separator: " ").map(String.init)
+        let haystack = ([rawValue, subtitle] + keywords).joined(separator: " ").lowercased()
+        return words.allSatisfy { haystack.contains($0) }
+    }
+}
+
+/// A page's icon: a white symbol on a colored rounded square.
+struct SettingsIcon: View {
+    let tab: SettingsTab
+    var size: CGFloat = 20
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+            .fill(tab.color.gradient)
+            .frame(width: size, height: size)
+            .overlay {
+                Image(systemName: tab.symbol)
+                    .font(.system(size: size * 0.55, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .shadow(color: .black.opacity(0.12), radius: size * 0.04, y: size * 0.03)
+            .accessibilityHidden(true)
+    }
+}
+
+/// The top of each page: its icon, name and what it is for, as in System Settings.
+private struct PageHeader: View {
+    let tab: SettingsTab
+
+    var body: some View {
+        VStack(spacing: 6) {
+            if tab == .about {
+                Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 64, height: 64).accessibilityHidden(true)
+            } else {
+                SettingsIcon(tab: tab, size: 48)
+            }
+            Text(tab.rawValue).font(.title2.weight(.semibold))
+            Text(tab.subtitle)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -197,21 +295,39 @@ final class SettingsModel: ObservableObject {
 
 private struct SettingsView: View {
     @ObservedObject var model: SettingsModel
+    @State private var query = ""
 
-    /// A sidebar with every section named, like System Settings, rather than a tab bar whose icons
-    /// can end up folded behind a » button.
+    private var matches: [SettingsTab] {
+        query.isEmpty ? SettingsTab.allCases : SettingsTab.allCases.filter { $0.matches(query) }
+    }
+
+    /// A sidebar with every section named and searchable, like System Settings, rather than a tab
+    /// bar whose icons can end up folded behind a » button.
     var body: some View {
-        HStack(spacing: 0) {
-            List(SettingsTab.allCases, id: \.self, selection: Binding(get: { model.tab }, set: { if let tab = $0 { model.tab = tab } })) { tab in
-                Label(tab.rawValue, systemImage: tab.symbol).tag(tab)
+        NavigationSplitView {
+            List(selection: Binding(get: { model.tab }, set: { if let tab = $0 { model.tab = tab } })) {
+                ForEach(matches, id: \.self) { tab in
+                    Label { Text(tab.rawValue) } icon: { SettingsIcon(tab: tab) }
+                        .tag(tab)
+                }
             }
             .listStyle(.sidebar)
-            .frame(width: 170)
-            Divider()
+            .searchable(text: $query, placement: .sidebar, prompt: "Search")
+            .overlay {
+                if matches.isEmpty { ContentUnavailableView.search(text: query) }
+            }
+            .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
+            .toolbar(removing: .sidebarToggle)
+        } detail: {
             page
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .navigationTitle(model.tab.rawValue)
         }
-        .frame(width: SettingsWindowController.size.width, height: SettingsWindowController.size.height)
+        .frame(minWidth: SettingsWindowController.minSize.width, minHeight: SettingsWindowController.minSize.height)
+        // Searching jumps to the first page that has it, unless the open page does.
+        .onChange(of: query) { _, _ in
+            if let first = matches.first, !matches.contains(model.tab) { model.tab = first }
+        }
     }
 
     @ViewBuilder
@@ -235,6 +351,7 @@ private struct GeneralTab: View {
 
     var body: some View {
         Form {
+            Section { PageHeader(tab: .general) }
             Section {
                 LabeledContent("Hotkey") {
                     HStack {
@@ -305,6 +422,7 @@ private struct SpeechTab: View {
 
     var body: some View {
         Form {
+            Section { PageHeader(tab: .speech) }
             Section {
                 Picker("Microphone", selection: Binding(get: { c.microphoneUID ?? "" }, set: { c.setMicrophone($0.isEmpty ? nil : $0) })) {
                     Text("System Default" + (c.defaultMicrophoneName.map { " (\($0))" } ?? "")).tag("")
@@ -478,6 +596,7 @@ private struct WritingTab: View {
 
     var body: some View {
         Form {
+            Section { PageHeader(tab: .writing) }
             Section("Clean up") {
                 LabeledContent("Model", value: c.cleanerName)
                 if c.hasModes {
@@ -565,6 +684,8 @@ private struct SnippetsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            PageHeader(tab: .snippets)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.quinary))
             Text("Say the phrase on its own, and the text is inserted instead. Say \u{201C}scratch that\u{201D} on its own to undo the last dictation.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if model.snippets.isEmpty {
@@ -615,6 +736,7 @@ private struct MeetingsTab: View {
 
     var body: some View {
         Form {
+            Section { PageHeader(tab: .meetings) }
             Section {
                 Toggle("Offer to take notes when a call starts", isOn: Binding(get: { c.config.meeting.offerWhenCallStarts }, set: { on in
                     c.editSettings("meeting", "offerWhenCallStarts", json: on ? "true" : "false") { $0.meeting.offerWhenCallStarts == on }
@@ -658,6 +780,7 @@ private struct AboutTab: View {
 
     var body: some View {
         Form {
+            Section { PageHeader(tab: .about) }
             Section {
                 LabeledContent("Version", value: c.updater.currentVersion)
                 HStack(spacing: 16) {

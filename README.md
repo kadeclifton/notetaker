@@ -29,9 +29,13 @@ macOS 14+) · [Install guide](docs/INSTALL.md) · [Privacy](PRIVACY.md)
   If cleanup fails or no key is set, the raw transcript is inserted, so nothing is lost.
 - **Inserts anywhere.** Pasteboard + Cmd-V (default) or simulated keystrokes. The transcript stays on
   the clipboard so you can paste it again; or set a flag to restore your previous clipboard.
-- **A tiny pill** just under the menu bar shows when it's live, which mode you're in, the input
-  level, and a countdown near the hands-free limit. Drag it anywhere (it remembers), or pick a spot
-  in Settings.
+- **A tiny pill** just under the menu bar shows when it's live, which mode you're in, a live
+  waveform of your voice, and a countdown near the hands-free limit, then a check mark with the
+  word count when your text goes in. Liquid Glass on macOS 26. Drag it anywhere (it remembers), or
+  pick a spot in Settings.
+- **A desktop widget** (small or medium, on the desktop or in Notification Center): today's words
+  and the time they saved, your week, and your last meeting's highlights, with buttons to start
+  and stop Meeting Notes.
 - **Meeting Notes.** Start it from the menu bar before a call. Murmur records your mic ("Me") and the
   call's audio ("Others"), transcribes as it goes, and when you stop writes a Markdown file with a
   summary, decisions, action items and the full transcript. Works with Zoom, Meet, Teams, FaceTime,
@@ -135,14 +139,15 @@ Click the wave in the menu bar:
 - **Status line**: "Ready", or **⚠️ Finish Setup…** when something needs fixing (click it).
 - **Dictation** (⌘E): on/off.
 - **Start Meeting Notes** (⌘M in the menu, ⌃⌥M anywhere); while recording, **Live Transcript…**.
-- **Library…** (⌘L): everything Compose has written, and every meeting's notes.
+- **Library…** (⌘L): everything Compose has written, and every meeting's notes, grouped by day and
+  searchable.
 - **Recent**: **Undo Last Dictation**, then the last 10 dictations and composes, click to copy again
   (kept in memory only).
 - **Snippets**: click one to type it where you are, **Add Snippet…**, and **Edit Snippets…**.
 - **Vocabulary**: add or remove the names and jargon passed to Whisper (`transcription.vocabulary`).
 - **Recent → Fix a Word…**: always write something it keeps getting wrong the way it should be
   (`transcription.corrections`, also in Settings… → Speech).
-- **Settings…** (⌘,): everything else, in one window. **General**: hotkey picker, launch at login,
+- **Settings…** (⌘,): everything else, in one window with a searchable sidebar. **General**: hotkey picker, launch at login,
   sounds, pill position; **Speech** (microphone, speech model and how long the last
   dictation took, Neural Engine, vocabulary); **Writing** (whether plain fn cleans up too, which
   models clean up and compose, how long Ollama keeps the cleanup model loaded, and the Compose model:
@@ -413,6 +418,9 @@ hotkey (CGEventTap) ─► state machine ─► AVAudioEngine @16 kHz ─► WAV
   and the pipeline. Builds and tests on Linux as well.
 - `Sources/Murmur`: the macOS app: event tap, microphone, text insertion, pill, menu bar,
   permissions, launch at login, and Meeting Notes (a Core Audio tap for the call's audio on macOS 14.2+, which also hears FaceTime and iPhone calls; ScreenCaptureKit before that).
+- `Sources/MurmurWidgets`: the desktop widget, a sandboxed app extension packaged into
+  `Murmur.app/Contents/PlugIns`. It reads a small summary (`WidgetSnapshot`) that Murmur writes to
+  the app group they share; its buttons open `murmur://` links, which the app handles.
 
 Meeting Notes runs the mic and the call's audio side by side: each is cut into ~30 s pieces at
 pauses, transcribed with timestamps, merged into one transcript, then summarized. Long meetings are

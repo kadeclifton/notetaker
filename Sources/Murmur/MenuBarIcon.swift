@@ -3,7 +3,7 @@ import AppKit
 
 /// The menu bar icon: the app icon's 13 bars, the loudness of the word "murmur" spoken aloud.
 /// Drawn in code so it is crisp at any scale; a template image, so macOS tints it for light,
-/// dark and highlighted menu bars. Keep `heights` in sync with HEIGHTS in scripts/make-icon.py.
+/// dark and highlighted menu bars. The heights live in `Brand.barHeights`.
 enum MenuBarIcon {
     enum Style {
         case idle
@@ -13,7 +13,7 @@ enum MenuBarIcon {
         case off
     }
 
-    static let heights: [CGFloat] = [0.19, 0.24, 0.80, 1.00, 0.80, 0.69, 0.56, 0.19, 0.16, 0.69, 0.67, 0.58, 0.42]
+    static let heights: [CGFloat] = Brand.barHeights.map { CGFloat($0) }
 
     static func image(_ style: Style) -> NSImage {
         // 1 pt bars with 1 pt gaps: at 2x that is 2 px bars and 2 px gaps, so they never blur together.

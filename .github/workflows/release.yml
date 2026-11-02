@@ -103,8 +103,19 @@ jobs:
           test -s build/Murmur.app/Contents/Resources/Assets.car
           lipo -archs build/Murmur.app/Contents/MacOS/Murmur | grep -qx arm64
           plutil -extract CFBundleShortVersionString raw build/Murmur.app/Contents/Info.plist | grep -qx "${GITHUB_REF_NAME#v}"
+          APPEX=build/Murmur.app/Contents/PlugIns/MurmurWidgets.appex
+          test -x "$APPEX/Contents/MacOS/MurmurWidgets"
+          plutil -extract CFBundleShortVersionString raw "$APPEX/Contents/Info.plist" | grep -qx "${GITHUB_REF_NAME#v}"
           if [ "$SIGNED" = true ]; then
             codesign -d --entitlements - build/Murmur.app 2>&1 | grep -q com.apple.security.device.audio-input
+            # The widget reads what Murmur writes through their shared app group.
+            GROUP="$(plutil -extract MurmurAppGroup raw build/Murmur.app/Contents/Info.plist)"
+            echo "App group: $GROUP"
+            test "$(plutil -extract MurmurAppGroup raw "$APPEX/Contents/Info.plist")" = "$GROUP"
+            codesign -d --entitlements - build/Murmur.app 2>&1 | grep -q "$GROUP"
+            codesign -d --entitlements - "$APPEX" 2>&1 | grep -q "$GROUP"
+            codesign -d --entitlements - "$APPEX" 2>&1 | grep -q com.apple.security.app-sandbox
+            codesign -dv "$APPEX" 2>&1 | grep -q 'flags=.*runtime'
             codesign -dv build/Murmur.app 2>&1 | grep -q 'flags=.*runtime'
             xcrun stapler validate build/Murmur.app
             spctl --assess --type execute --verbose=2 build/Murmur.app

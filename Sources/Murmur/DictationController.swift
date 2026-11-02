@@ -43,6 +43,10 @@ final class DictationController {
         return compose
     }()
     private let library = LibraryWindowController()
+    private let widget = WidgetBridge()
+    /// The newest meeting's notes, for the widget; read again when a meeting ends.
+    private var widgetMeeting: MeetingFile?
+    private var widgetMeetingRead = false
     private let callWatcher = CallWatcher()
     private let pasteLastShortcut = GlobalShortcut()
     private let meetingShortcut = GlobalShortcut()
@@ -148,6 +152,7 @@ final class DictationController {
         if !Permissions.accessibility { Permissions.promptAccessibility() }
         reloadConfig()
         if needsSetup { showSetup() } else { showHowToOnce() }
+        updateWidget(urgent: true)
     }
 
     /// Re-reads config.json and .env and re-installs the hotkey.
@@ -276,6 +281,7 @@ final class DictationController {
                 recorder.onChange = { [weak self] in self?.onChange?() }
                 recorder.onTimeLimit = { [weak self] in self?.stopMeeting() }
                 self.meeting = recorder
+                self.updateWidget(urgent: true)
                 self.callWatcher.watchMeeting(self.config.meeting.offerToStopWhenCallEnds)
                 self.play("Tink")
                 self.flash("Meeting notes are recording")
@@ -311,7 +317,7 @@ final class DictationController {
         Task { [weak self] in
             let url = await meeting.stop(summarize: summarize) { message in
                 self?.meetingStatus = message
-                if self?.config.feedback.pill == true { self?.pill.show(.message(message, isError: false)) }
+                if self?.config.feedback.pill == true { self?.pill.show(.status(message)) }
                 self?.onChange?()
             }
             guard let self else { return }
@@ -320,7 +326,11 @@ final class DictationController {
             self.scheduleIdleUnload()
             self.meetingStatus = nil
             self.library.refresh()
-            self.flash("Meeting notes saved")
+            self.widgetMeetingRead = false
+            self.updateWidget(urgent: true)
+            if self.config.feedback.pill {
+                self.pill.done("Meeting notes saved", seconds: 1.6) { [weak self] in self?.refreshPill() }
+            }
             self.onChange?()
             if let then {
                 then()
@@ -1193,7 +1203,7 @@ final class DictationController {
                 if outcome == .copiedOnly {
                     self.finishJob(id, message: "Copied: no text field to paste into. Press ⌘V where you want it.")
                 } else {
-                    self.finishJob(id, message: limitNote)
+                    self.finishJob(id, message: limitNote, done: Self.wordsTyped(result.text))
                 }
             } catch {
                 guard let self else { return }
@@ -1256,7 +1266,11 @@ final class DictationController {
                 let outcome = await self.inserter.insert(edited, config: insertion)
                 self.remember(edited, mode: .edit, spoken: spoken)
                 if outcome == .inserted { self.noteInsertion(into: targetPID) }
-                self.finishJob(id, message: outcome == .copiedOnly ? "Copied: the selection was gone. Press ⌘V where you want it." : nil)
+                if outcome == .copiedOnly {
+                    self.finishJob(id, message: "Copied: the selection was gone. Press ⌘V where you want it.")
+                } else {
+                    self.finishJob(id, message: nil, done: "Edited")
+                }
             } catch {
                 self.finishJob(id, message: nil)
                 let cancelled = Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled
@@ -1268,14 +1282,26 @@ final class DictationController {
         onChange?()
     }
 
-    private func finishJob(_ id: UUID, message: String?) {
+    /// `done` is the check mark's text ("42 words"), shown briefly when nothing else is going on.
+    private func finishJob(_ id: UUID, message: String?, done: String? = nil) {
         jobs[id] = nil
         if jobs.isEmpty {
             lastJob = nil
             scheduleIdleUnload()
         }
-        if let message { flash(message) } else { refreshPill() }
+        if let message {
+            flash(message)
+        } else if let done, jobs.isEmpty, !recordingAnnounced, config.feedback.pill {
+            pill.done(done) { [weak self] in self?.refreshPill() }
+        } else {
+            refreshPill()
+        }
         onChange?()
+    }
+
+    static func wordsTyped(_ text: String) -> String {
+        let count = UsageStats.wordCount(text)
+        return count == 1 ? "1 word" : "\(count.formatted()) words"
     }
 
     // MARK: Early transcription
@@ -1395,12 +1421,47 @@ final class DictationController {
     private func recordStats(_ text: String, spoken: TimeInterval) {
         stats.record(words: UsageStats.wordCount(text), spoken: spoken)
         if let data = try? JSONEncoder().encode(stats) { UserDefaults.standard.set(data, forKey: "usageStats") }
+        updateWidget()
     }
 
     func resetStats() {
         stats = UsageStats()
         UserDefaults.standard.removeObject(forKey: "usageStats")
+        updateWidget(urgent: true)
         onChange?()
+    }
+
+    /// Gives the desktop widget today's numbers, the meeting being recorded, and the latest notes.
+    private func updateWidget(urgent: Bool = false) {
+        guard widget.isAvailable else { return }
+        if !widgetMeetingRead {
+            widgetMeeting = MeetingStore(config: config.meeting).list().first
+            widgetMeetingRead = true
+        }
+        let started = meeting.map { Date().addingTimeInterval(-$0.elapsed) }
+        widget.publish(WidgetSnapshot.make(stats: stats, lastMeeting: widgetMeeting, meetingStarted: started,
+                                           hotkey: hotkeyDescription), urgent: urgent)
+    }
+
+    // MARK: Links
+
+    /// murmur:// links, which the desktop widget's buttons open.
+    func open(_ url: URL) {
+        switch MurmurLink.parse(url) {
+        case .startMeeting?:
+            if meeting == nil { startMeeting() }
+            showLiveMeeting()
+        case .stopMeeting?:
+            stopMeeting()
+        case .meeting?:
+            if meeting != nil || meetingStatus != nil { showLiveMeeting() } else { showLibrary(section: .meetings) }
+        case let .library(meetings)?:
+            showLibrary(section: meetings ? .meetings : .compose)
+        case let .settings(page)?:
+            showSettings(tab: page.flatMap { name in SettingsTab.allCases.first { $0.rawValue.lowercased() == name } })
+        case nil:
+            NSLog("Murmur: ignored link %@", url.absoluteString)
+        }
     }
 
     private func remember(_ text: String, mode: DictationMode, spoken: TimeInterval = 0) {

@@ -46,6 +46,21 @@ jobs:
           xcrun assetutil --info build/Murmur.app/Contents/Resources/Assets.car | grep -i -E 'appearance|AppIcon' | sort -u | head -20
           lipo -archs build/Murmur.app/Contents/MacOS/Murmur | grep -qx arm64
           plutil -extract CFBundleShortVersionString raw build/Murmur.app/Contents/Info.plist | grep -qx 0.0.0-ci
+          plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw build/Murmur.app/Contents/Info.plist | grep -qx murmur
+      - name: Check the desktop widget
+        run: |
+          APPEX=build/Murmur.app/Contents/PlugIns/MurmurWidgets.appex
+          plutil -lint "$APPEX/Contents/Info.plist" Resources/MurmurWidgets.entitlements
+          test -x "$APPEX/Contents/MacOS/MurmurWidgets"
+          lipo -archs "$APPEX/Contents/MacOS/MurmurWidgets" | grep -qx arm64
+          plutil -extract NSExtension.NSExtensionPointIdentifier raw "$APPEX/Contents/Info.plist" | grep -qx com.apple.widgetkit-extension
+          plutil -extract CFBundleShortVersionString raw "$APPEX/Contents/Info.plist" | grep -qx 0.0.0-ci
+          otool -L "$APPEX/Contents/MacOS/MurmurWidgets" | grep -q WidgetKit.framework
+          codesign --verify --strict --verbose "$APPEX"
+          codesign -d --entitlements - "$APPEX" 2>&1 | grep -q com.apple.security.app-sandbox
+          # Whether macOS accepts it as a widget extension (an ad-hoc build may still be refused).
+          pluginkit -a "$APPEX" || true
+          pluginkit -m -v -i com.github.kadeclifton.murmur.widgets || echo "pluginkit did not list the widget"
       - name: Check the bundled whisper.cpp
         run: |
           du -sh build/Murmur.app build/Murmur.app/Contents/MacOS/*
