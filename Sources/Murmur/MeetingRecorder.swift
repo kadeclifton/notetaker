@@ -19,15 +19,17 @@ final class MeetingRecorder {
 
     let fileURL: URL
     let startedAt = Date()
-    private let setup: Setup
+    private var setup: Setup
     private let mic = AudioRecorder()
     private var system: CallAudioSource?
     private var micChunker: AudioChunker
     private var systemChunker: AudioChunker
     private var transcript = MeetingTranscript()
     private var pumpTimer: Timer?
-    /// Pieces are transcribed one at a time, in order.
-    private var queueTail: Task<Void, Never>?
+    /// Each side's pieces are transcribed one at a time, in order. When the transcriber takes two
+    /// clips at once (a hosted API, Apple's engine), your words and the call's have a queue each and
+    /// are transcribed side by side; otherwise they share one (whisper.cpp does one clip at a time).
+    private var queueTails: [Speaker: Task<Void, Never>] = [:]
     private var pendingPieces = 0
     private(set) var warnings: [String] = []
     /// The loudest moment heard from each side so far, to warn when one stayed silent throughout.
@@ -43,6 +45,17 @@ final class MeetingRecorder {
     var onChange: (() -> Void)?
     /// Called once when the time limit is reached; the owner should stop the meeting.
     var onTimeLimit: (() -> Void)?
+
+    /// The model that writes the summary at the end. Murmur may find a local one only after the
+    /// recording has started, so it can be set until then.
+    var summarizer: ChatModel? {
+        get { setup.summarizer }
+        set {
+            setup.summarizer = newValue
+            // Its name is in the notes' details; never rewrite notes that are finished.
+            if stoppedAt == nil { try? writeFile(summary: nil) }
+        }
+    }
 
     private var stoppedAt: Date?
     var elapsed: TimeInterval { (stoppedAt ?? Date()).timeIntervalSince(startedAt) }
@@ -66,27 +79,41 @@ final class MeetingRecorder {
         // A call app switching the mic to voice processing (FaceTime does) silently stops a
         // recording; for a whole meeting, the recorder notices and starts again.
         mic.keepsRunning = true
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            mic.start { error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+        // The mic and the call's audio start together: each takes a moment (the call's audio
+        // more, the first time macOS sets up its tap) and neither needs the other.
+        var callAudio: Task<Result<CallAudioSource, Error>, Never>?
+        if setup.config.captureSystemAudio {
+            callAudio = Task { () async -> Result<CallAudioSource, Error> in
+                do { return .success(try await Self.startCallAudio()) } catch { return .failure(error) }
             }
         }
-        if setup.config.captureSystemAudio {
-            do {
-                let capture = try await Self.startCallAudio()
-                capture.onStop = { [weak self] error in
-                    Task { @MainActor [weak self] in
-                        self?.warnings.append("Call audio stopped: \(error.localizedDescription)")
-                        self?.system = nil
-                    }
-                }
-                system = capture
-            } catch {
-                // Keep going with the mic alone rather than losing the meeting; say so in the notes.
-                warnings.append("\(error)")
-                Permissions.reopenIfQuit()
-                Permissions.open(.screenRecording)
+        let micStarted: Result<Void, Error> = await withCheckedContinuation { continuation in
+            mic.start { error in
+                if let error { continuation.resume(returning: .failure(error)) } else { continuation.resume(returning: .success(())) }
             }
+        }
+        let call = await callAudio?.value
+        if case let .failure(error) = micStarted {
+            // No meeting without the mic: do not leave the call's audio running.
+            if case let .success(capture)? = call { await capture.stop() }
+            throw error
+        }
+        switch call {
+        case let .success(capture)?:
+            capture.onStop = { [weak self] error in
+                Task { @MainActor [weak self] in
+                    self?.warnings.append("Call audio stopped: \(error.localizedDescription)")
+                    self?.system = nil
+                }
+            }
+            system = capture
+        case let .failure(error)?:
+            // Keep going with the mic alone rather than losing the meeting; say so in the notes.
+            warnings.append("\(error)")
+            Permissions.reopenIfQuit()
+            Permissions.open(.screenRecording)
+        case nil:
+            break
         }
         try writeFile(summary: nil)
         pumpTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
@@ -128,12 +155,13 @@ final class MeetingRecorder {
         loudest[speaker] = max(loudest[speaker] ?? 0, level)
         guard !Audio.isSilent(chunk.samples) else { return }
         if level >= MeetingNoise.quiet { lastSpeech = Date() }
-        let previous = queueTail
         let transcriber = setup.transcriber
+        let lane: Speaker = transcriber.takesConcurrentRequests ? speaker : .me
+        let previous = queueTails[lane]
         let language = setup.language
         let prompt = setup.prompt
         pendingPieces += 1
-        queueTail = Task { [weak self] in
+        queueTails[lane] = Task { [weak self] in
             await previous?.value
             let result: Result<[TimedText], Error>
             do {
@@ -162,13 +190,16 @@ final class MeetingRecorder {
         stoppedAt = Date()
         pumpTimer?.invalidate()
         pumpTimer = nil
+        // Both sides stop together; neither waits for the other.
+        var callStopped: Task<Void, Never>?
+        if let system { callStopped = Task { await system.stop() } }
         let rest = await withCheckedContinuation { (continuation: CheckedContinuation<[Float], Never>) in
             mic.stop { continuation.resume(returning: $0) }
         }
         for chunk in micChunker.append(rest) { enqueue(chunk, speaker: .me) }
         if let chunk = micChunker.flush() { enqueue(chunk, speaker: .me) }
         if let system {
-            await system.stop()
+            await callStopped?.value
             for chunk in systemChunker.append(system.takeRecorded()) { enqueue(chunk, speaker: .others) }
             if let chunk = systemChunker.flush() { enqueue(chunk, speaker: .others) }
             self.system = nil
@@ -184,7 +215,7 @@ final class MeetingRecorder {
         }
 
         if pendingPieces > 0 { progress("Transcribing the last \(pendingPieces == 1 ? "piece" : "\(pendingPieces) pieces")…") }
-        await queueTail?.value
+        for tail in queueTails.values { await tail.value }
 
         var summary: String?
         if summarize, setup.config.summarize, !transcript.isEmpty {

@@ -165,8 +165,10 @@ final class Updater {
         guard Bundle(url: newApp)?.bundleIdentifier == Bundle.main.bundleIdentifier else {
             throw UpdaterError("the download is a different app.")
         }
-        try await Self.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", newApp.path])
-        try await Self.run("/usr/sbin/spctl", ["--assess", "--type", "execute", newApp.path])
+        // Two separate checks of the same bundle, run side by side: intact, and accepted by Gatekeeper.
+        async let intact: Void = Self.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", newApp.path])
+        async let notarized: Void = Self.run("/usr/sbin/spctl", ["--assess", "--type", "execute", newApp.path])
+        _ = try await (intact, notarized)
         return newApp
     }
 

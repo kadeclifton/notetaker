@@ -13,9 +13,15 @@ public protocol ChatModel: Sendable {
     /// wait for the next piece. Models without streaming deliver the whole reply as one piece.
     func stream(system: String, user: String, maxTokens: Int, temperature: Double,
                 timeout: TimeInterval) -> AsyncThrowingStream<String, Error>
+    /// How many requests to send at once when there are several (a long meeting's parts). A server
+    /// on this Mac answers one at a time, so sending more only makes each wait in its queue and
+    /// eat into its timeout; a hosted API answers them side by side.
+    var parallelRequests: Int { get }
 }
 
 extension ChatModel {
+    public var parallelRequests: Int { 1 }
+
     public func stream(system: String, user: String, maxTokens: Int, temperature: Double,
                        timeout: TimeInterval) -> AsyncThrowingStream<String, Error> {
         ChatStream.run { yield in
@@ -59,6 +65,9 @@ public struct OpenAICompatibleChat: ChatModel {
     }
 
     public var name: String { "\(service) \(model)" }
+
+    /// Ollama, LM Studio or a llama.cpp box on the network answer one at a time; Groq and OpenAI do not.
+    public var parallelRequests: Int { NetworkSafety.isLocal(baseURL.host ?? "localhost") ? 1 : 3 }
 
     func request(system: String, user: String, maxTokens: Int, temperature: Double,
                  timeout: TimeInterval, stream: Bool) throws -> URLRequest {
@@ -147,6 +156,8 @@ public struct AnthropicChat: ChatModel {
     }
 
     public var name: String { "Anthropic \(model)" }
+
+    public var parallelRequests: Int { 3 }
 
     public func complete(system: String, user: String, maxTokens: Int, timeout: TimeInterval) async throws -> String {
         let body: [String: Any] = [

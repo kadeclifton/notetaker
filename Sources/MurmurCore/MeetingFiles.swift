@@ -69,6 +69,24 @@ public struct MeetingStore: Sendable {
         self.init(folder: URL(fileURLWithPath: AppPaths.expandTilde(config.folder), isDirectory: true))
     }
 
+    /// The newest meeting, reading only as many files as it takes: names start with the date and
+    /// time, so they sort newest first without opening each one.
+    public func latest() -> MeetingFile? {
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        let newestFirst = files.filter { $0.pathExtension == "md" }
+            .map { (url: $0, date: MeetingFile.date(fromFileName: $0.lastPathComponent)) }
+            .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+        for file in newestFirst {
+            // A file without a date in its name is not one Murmur wrote; list() reads those.
+            guard let date = file.date else { break }
+            if let text = try? String(contentsOf: file.url, encoding: .utf8),
+               let meeting = MeetingFile.parse(text, url: file.url, fallbackDate: date) {
+                return meeting
+            }
+        }
+        return nil
+    }
+
     /// Every meeting, newest first.
     public func list() -> [MeetingFile] {
         let fm = FileManager.default
