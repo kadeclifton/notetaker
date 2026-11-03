@@ -459,7 +459,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
 /// The top of the menu, as a card: Murmur's bars and state, today's dictation, and key caps for
 /// what each key combination does.
-private struct MenuHeader: View {
+struct MenuHeader: View {
     let status: String
     let color: Color
     let today: String

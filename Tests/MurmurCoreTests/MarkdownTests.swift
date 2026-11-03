@@ -207,3 +207,65 @@ final class MurmurLinkTests: XCTestCase {
         XCTAssertNil(MurmurLink.parse(URL(string: "murmur://format-disk")!))
     }
 }
+
+final class SnapshotCheckTests: XCTestCase {
+    /// A width × height RGBA image filled by `pixel(x, y)`.
+    func image(_ width: Int, _ height: Int, _ pixel: (Int, Int) -> (UInt8, UInt8, UInt8, UInt8)) -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let (r, g, b, a) = pixel(x, y)
+                let i = (y * width + x) * 4
+                bytes[i] = r; bytes[i + 1] = g; bytes[i + 2] = b; bytes[i + 3] = a
+            }
+        }
+        return bytes
+    }
+
+    func testEmptyWindowIsBlank() {
+        let plain = image(400, 300) { _, _ in (236, 236, 236, 255) }
+        let result = SnapshotCheck.analyze(rgba: plain, width: 400, height: 300)
+        XCTAssertTrue(result.isBlank)
+        XCTAssertEqual(result.colors, 1)
+    }
+
+    func testBlurredBackgroundIsBlankDespiteItsColors() {
+        // A soft diagonal gradient with a little noise: like the desktop seen through a sidebar.
+        let blurred = image(400, 300) { x, y in
+            let base = 90 + (x + y) / 6 + (x * 7 + y * 13) % 5
+            return (UInt8(base), UInt8(min(255, base + 20)), UInt8(min(255, base + 40)), 255)
+        }
+        let result = SnapshotCheck.analyze(rgba: blurred, width: 400, height: 300)
+        XCTAssertTrue(result.isBlank, "\(result)")
+        XCTAssertGreaterThan(result.colors, 20)
+    }
+
+    func testALineOfTextIsContent() {
+        // Dark 1-px strokes, like a short label, on a light background.
+        let text = image(400, 300) { x, y in
+            let inLabel = (140...152).contains(y) && (40...200).contains(x) && (x % 4 == 0 || y == 146)
+            return inLabel ? (30, 30, 30, 255) : (236, 236, 236, 255)
+        }
+        XCTAssertFalse(SnapshotCheck.analyze(rgba: text, width: 400, height: 300).isBlank)
+    }
+
+    func testRegionsAreCheckedOnTheirOwn() {
+        // Content on the right half only: the left half (a sidebar with no rows) is blank.
+        let rightOnly = image(400, 300) { x, y in
+            x > 250 && y % 6 == 0 ? (20, 20, 20, 255) : (236, 236, 236, 255)
+        }
+        let left = SnapshotCheck.Region(x: 0, y: 0, width: 200, height: 300)
+        let right = SnapshotCheck.Region(x: 200, y: 0, width: 999, height: 999)
+        XCTAssertTrue(SnapshotCheck.analyze(rgba: rightOnly, width: 400, height: 300, region: left).isBlank)
+        XCTAssertFalse(SnapshotCheck.analyze(rgba: rightOnly, width: 400, height: 300, region: right).isBlank)
+        XCTAssertEqual(SnapshotCheck.clipped(right, width: 400, height: 300), SnapshotCheck.Region(x: 200, y: 0, width: 200, height: 300))
+    }
+
+    func testTransparentPillOutlineIsContent() {
+        // A capsule edge against a transparent window.
+        let pill = image(200, 48) { x, y in
+            (8...40).contains(y) && (8...192).contains(x) ? (40, 40, 40, 230) : (0, 0, 0, 0)
+        }
+        XCTAssertFalse(SnapshotCheck.analyze(rgba: pill, width: 200, height: 48).isBlank)
+    }
+}
