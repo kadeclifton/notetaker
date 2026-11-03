@@ -179,6 +179,9 @@ final class PillController {
 
     var isFlashing: Bool { flashTask != nil }
 
+    /// The panel itself, for the screenshot tests.
+    var window: NSWindow { panel }
+
     /// The pill never takes VoiceOver focus, so VoiceOver users hear what it shows instead.
     private func announce(_ phase: PillPhase) {
         guard NSWorkspace.shared.isVoiceOverEnabled else { return }

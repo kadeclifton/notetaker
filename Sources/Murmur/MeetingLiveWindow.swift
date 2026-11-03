@@ -13,6 +13,27 @@ final class MeetingLiveWindowController {
     func show(controller: DictationController) {
         model.controller = controller
         model.refresh()
+        makeWindow()
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.window?.isVisible == true { self.model.refresh() } else { self.timer?.invalidate(); self.timer = nil }
+            }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Sample turns without a meeting, for the screenshot tests.
+    func showPreview(turns: [MeetingSegment], elapsed: TimeInterval, pending: Int) -> NSWindow? {
+        model.preview(turns: turns, elapsed: elapsed, pending: pending)
+        makeWindow()
+        window?.makeKeyAndOrderFront(nil)
+        return window
+    }
+
+    private func makeWindow() {
         if window == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 620),
                                   styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
@@ -23,15 +44,6 @@ final class MeetingLiveWindowController {
             if window.frame.origin == .zero { window.center() }
             self.window = window
         }
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if self.window?.isVisible == true { self.model.refresh() } else { self.timer?.invalidate(); self.timer = nil }
-            }
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
     }
 }
 
@@ -79,6 +91,17 @@ final class MeetingLiveModel: ObservableObject {
     }
 
     func stop() { controller?.stopMeeting() }
+
+    /// A meeting in progress, made up: for the screenshot tests.
+    func preview(turns: [MeetingSegment], elapsed: TimeInterval, pending: Int) {
+        controller = nil
+        self.turns = turns
+        self.elapsed = elapsed
+        self.pending = pending
+        status = nil
+        recording = true
+        started = Date().addingTimeInterval(-elapsed)
+    }
 
     func openFile() {
         if let fileURL { NSWorkspace.shared.open(fileURL) }

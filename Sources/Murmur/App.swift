@@ -7,12 +7,42 @@ enum MurmurApp {
     @MainActor
     static func main() {
         let app = NSApplication.shared
+        // `Murmur --snapshots <folder>`: the screenshot tests, instead of the app (see Snapshots).
+        if let folder = Snapshots.folder() {
+            let delegate = SnapshotDelegate(folder: folder)
+            app.delegate = delegate
+            app.setActivationPolicy(.regular)
+            withExtendedLifetime(delegate) { app.run() }
+            return
+        }
         let delegate = AppDelegate()
         app.delegate = delegate
         // Menu bar only: no Dock icon, never steals focus from the app you are typing in.
         app.setActivationPolicy(.accessory)
         withExtendedLifetime(delegate) {
             app.run()
+        }
+    }
+}
+
+/// Runs the screenshot tests, then quits with their result.
+@MainActor
+final class SnapshotDelegate: NSObject, NSApplicationDelegate {
+    let folder: URL
+
+    init(folder: URL) {
+        self.folder = folder
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // A window that never finishes appearing must not hang CI.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 240) {
+            print("Screenshots timed out.")
+            exit(3)
+        }
+        Task { @MainActor in
+            let status = await Snapshots.run(into: self.folder)
+            exit(status)
         }
     }
 }

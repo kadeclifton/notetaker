@@ -47,6 +47,20 @@ jobs:
           lipo -archs build/Murmur.app/Contents/MacOS/Murmur | grep -qx arm64
           plutil -extract CFBundleShortVersionString raw build/Murmur.app/Contents/Info.plist | grep -qx 0.0.0-ci
           plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw build/Murmur.app/Contents/Info.plist | grep -qx murmur
+      - name: Screenshot every window
+        # Opens each window and state with made-up data and fails on any that drew nothing.
+        timeout-minutes: 6
+        run: build/Murmur.app/Contents/MacOS/Murmur --snapshots "$RUNNER_TEMP/screenshots"
+      - name: Screenshot report
+        if: always()
+        run: cat "$RUNNER_TEMP/screenshots/report.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "No screenshots were taken." >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-macos-26
+          path: ${{ runner.temp }}/screenshots
+          if-no-files-found: warn
       - name: Check the desktop widget
         run: |
           APPEX=build/Murmur.app/Contents/PlugIns/MurmurWidgets.appex
@@ -126,6 +140,20 @@ jobs:
           codesign -d -r- build/Murmur.app 2>&1 | grep designated > req2.txt
           diff req1.txt req2.txt
           codesign --verify --verbose build/Murmur.app
+      - name: Screenshot every window
+        # Opens each window and state with made-up data and fails on any that drew nothing.
+        timeout-minutes: 6
+        run: build/Murmur.app/Contents/MacOS/Murmur --snapshots "$RUNNER_TEMP/screenshots"
+      - name: Screenshot report
+        if: always()
+        run: cat "$RUNNER_TEMP/screenshots/report.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "No screenshots were taken." >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-macos-15
+          path: ${{ runner.temp }}/screenshots
+          if-no-files-found: warn
 
   linux:
     runs-on: ubuntu-latest

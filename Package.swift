@@ -13,10 +13,19 @@ let package = Package(
         // Platform-independent logic: config, hotkey state machine, transcription
         // and cleanup clients. Builds and tests on Linux too.
         .target(name: "MurmurCore"),
+        // The desktop widget's views: the widget shows them, and the app's screenshot tests draw them.
+        .target(
+            name: "MurmurWidgetViews",
+            dependencies: ["MurmurCore"],
+            linkerSettings: [
+                .linkedFramework("SwiftUI", .when(platforms: [.macOS])),
+                .linkedFramework("WidgetKit", .when(platforms: [.macOS])),
+            ]
+        ),
         // The macOS app: event tap, microphone, pasteboard, menu bar, pill.
         .executableTarget(
             name: "Murmur",
-            dependencies: ["MurmurCore"],
+            dependencies: ["MurmurCore", "MurmurWidgetViews"],
             linkerSettings: [
                 .linkedFramework("AppKit", .when(platforms: [.macOS])),
                 .linkedFramework("AVFoundation", .when(platforms: [.macOS])),
@@ -31,7 +40,7 @@ let package = Package(
         // The widget: sandboxed, separate from the app, reading what the app writes to their app group.
         .executableTarget(
             name: "MurmurWidgets",
-            dependencies: ["MurmurCore"],
+            dependencies: ["MurmurCore", "MurmurWidgetViews"],
             linkerSettings: [
                 .linkedFramework("SwiftUI", .when(platforms: [.macOS])),
                 .linkedFramework("WidgetKit", .when(platforms: [.macOS])),

@@ -492,7 +492,15 @@ swift build
 swift test                 # MurmurCore tests; also run on Linux in CI
 swift run Murmur           # unbundled: permissions go to your terminal app, no launch at login
 scripts/build-app.sh       # proper .app in build/
+build/Murmur.app/Contents/MacOS/Murmur --snapshots /tmp/shots   # screenshot every window
 ```
+
+**Screenshot tests.** `--snapshots <folder>` opens every window and state (each Settings page,
+Library, Live Transcript, the menu's card, every pill state, Compose, Setup, the call offer and
+each widget size) with made-up data, starts nothing (no hotkey, microphone, models or network),
+saves each as a PNG with a `report.md`, and exits with 1 if any of them drew nothing. CI runs it on
+macOS 26 and 15 for every push; the PNGs are in the run's **screenshots-macos-26** and
+**screenshots-macos-15** artifacts, and the report is on the run's summary page.
 
 Logs go to the unified log: `log stream --predicate 'process == "Murmur"'`.
 

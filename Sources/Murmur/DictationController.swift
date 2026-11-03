@@ -155,6 +155,17 @@ final class DictationController {
         updateWidget(urgent: true)
     }
 
+    /// For the screenshot tests (`--snapshots`): these settings, with nothing started (no hotkey,
+    /// whisper-server, update checks, model detection or shortcuts).
+    func loadForSnapshots(_ config: Config) {
+        self.config = config
+        env = [:]
+        machine = DictationStateMachine(timing: .init(config))
+        hotkeySpec = (try? HotkeySpec.parse(config.hotkey)) ?? .modifier(.fn)
+        pill.model.hotkeyName = hotkeySpec.displayName
+        refreshModels()
+    }
+
     /// Re-reads config.json and .env and re-installs the hotkey.
     func reloadConfig() {
         cancelEverything()

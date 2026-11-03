@@ -153,7 +153,7 @@ final class CallWatcher {
     }
 }
 
-private struct CallOfferView: View {
+struct CallOfferView: View {
     let title: String
     let message: String
     let primary: String
