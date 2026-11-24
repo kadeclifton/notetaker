@@ -7,7 +7,9 @@ import MurmurCore
 final class DictationController {
     private(set) var config = Config()
     private var env: [String: String] = [:]
-    private var machine = DictationStateMachine()
+    private var machine = DictationStateMachine() {
+        didSet { updateKeyWatching() }
+    }
     private let hotkeys = HotkeyMonitor()
     private let recorder = AudioRecorder()
     private let inserter = TextInserter()
@@ -35,6 +37,7 @@ final class DictationController {
             if outcome == .passwordField { self?.flash(DictationController.passwordFieldMessage) }
         }
         compose.onSaved = { [weak self] in self?.library.refresh() }
+        compose.onVisibilityChange = { [weak self] showing in self?.composeShowing = showing }
         compose.onMessage = { [weak self] message in self?.flash(message) }
         compose.onTiming = { [weak self] timing in
             self?.lastTiming = timing
@@ -53,7 +56,12 @@ final class DictationController {
 
     /// Transcriptions in flight. Each waits for the one before it before inserting, so text
     /// lands in the order it was dictated even when a later, shorter clip finishes first.
-    private var jobs: [UUID: Task<Void, Never>] = [:]
+    private var jobs: [UUID: Task<Void, Never>] = [:] {
+        didSet { updateKeyWatching() }
+    }
+    private var composeShowing = false {
+        didSet { updateKeyWatching() }
+    }
     private var lastJob: Task<Void, Never>?
 
     /// Sound and pill wait until a press has lasted longer than a tap, so fn+arrow and
@@ -974,6 +982,13 @@ final class DictationController {
     }
 
     private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
+
+    /// Esc and keys pressed with the hotkey matter only while Murmur records, works, or shows
+    /// Compose (Esc closes it). The rest of the time the keyboard tap watches modifier keys alone,
+    /// so typing in other apps does not wake Murmur.
+    private func updateKeyWatching() {
+        hotkeys.watchKeys = machine.isRecording || !jobs.isEmpty || composeShowing
+    }
 
     private func run(_ actions: [DictationAction]) {
         for action in actions {

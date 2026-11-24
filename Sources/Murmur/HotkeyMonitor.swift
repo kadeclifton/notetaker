@@ -26,6 +26,16 @@ final class HotkeyMonitor: @unchecked Sendable {
 
     var isRunning: Bool { current != nil }
 
+    /// With a modifier hotkey (fn), whether to watch every key press: needed for Esc and for keys
+    /// pressed with the hotkey only while Murmur records or works. Off, typing in other apps does
+    /// not wake Murmur at all. Key presses are always watched while the hotkey is held.
+    var watchKeys = false {
+        didSet {
+            guard watchKeys != oldValue else { return }
+            current?.setWatchKeys(watchKeys)
+        }
+    }
+
     /// Installs the event tap. Returns false if macOS refused (permission not granted yet).
     @discardableResult
     func start(spec: HotkeySpec) -> Bool {
@@ -42,6 +52,7 @@ final class HotkeyMonitor: @unchecked Sendable {
             }
         })
         guard context.run() else { return false }
+        context.setWatchKeys(watchKeys)
         current = context
         return true
     }
@@ -58,10 +69,15 @@ private final class TapContext: @unchecked Sendable {
     private let emit: (DictationInput, TimeInterval) -> Void
     private let emitModifiers: (ShortcutModifiers) -> Void
     private var tap: CFMachPort?
+    /// Modifier hotkeys only: key presses, in a tap of their own that is off unless they matter.
+    private var keysTap: CFMachPort?
     private var runLoop: CFRunLoop?
     private var hotkeyIsDown = false
     private let lock = NSLock()
     private var stopped = false
+    /// Under `lock`: what the keys tap needs to be on for.
+    private var watchKeys = false
+    private var hotkeyHeld = false
 
     init(spec: HotkeySpec, emit: @escaping (DictationInput, TimeInterval) -> Void,
          emitModifiers: @escaping (ShortcutModifiers) -> Void) {
@@ -75,27 +91,46 @@ private final class TapContext: @unchecked Sendable {
         let ready = DispatchSemaphore(value: 0)
         let created = Flag()
         let thread = Thread { [self] in
-            guard let tap = makeTap() else {
+            // A modifier hotkey only needs modifier changes all the time; key presses get their own
+            // tap, switched on when they matter. If that tap cannot be made, one tap does both.
+            let keys = spec.isModifierOnly ? makeTap(mask: Self.mask(.keyDown)) : nil
+            let mask: UInt64
+            switch spec {
+            case .modifier: mask = Self.mask(.flagsChanged) | (keys == nil ? Self.mask(.keyDown) : 0)
+            case .shortcut: mask = Self.mask(.keyDown) | Self.mask(.keyUp)
+            }
+            guard let tap = makeTap(mask: mask) else {
+                if let keys { CFMachPortInvalidate(keys) }
                 ready.signal()
                 return
             }
-            let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
             let loop = CFRunLoopGetCurrent()
-            CFRunLoopAddSource(loop, source, .commonModes)
+            let sources = [tap, keys].compactMap { $0 }.map { port -> CFRunLoopSource in
+                let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
+                CFRunLoopAddSource(loop, source, .commonModes)
+                return source
+            }
             CGEvent.tapEnable(tap: tap, enable: true)
+            if let keys { CGEvent.tapEnable(tap: keys, enable: false) }
             lock.withLock {
                 self.tap = tap
+                self.keysTap = keys
                 self.runLoop = loop
             }
+            updateKeysTap()
             created.value = true
             ready.signal()
-            // Wake at least once a second so a stop() that raced the start is still noticed.
+            // Sleeps until stop() stops this run loop. The timeout only matters if stop() came
+            // between storing the loop above and running it, so it can be long: the thread must
+            // not wake every second for nothing.
             while !lock.withLock({ stopped }) {
-                CFRunLoopRunInMode(.defaultMode, 1, false)
+                CFRunLoopRunInMode(.defaultMode, 60, false)
             }
-            CGEvent.tapEnable(tap: tap, enable: false)
-            CFRunLoopRemoveSource(loop, source, .commonModes)
-            CFMachPortInvalidate(tap)
+            for port in [tap, keys].compactMap({ $0 }) {
+                CGEvent.tapEnable(tap: port, enable: false)
+                CFMachPortInvalidate(port)
+            }
+            for source in sources { CFRunLoopRemoveSource(loop, source, .commonModes) }
         }
         thread.name = "Murmur hotkey tap"
         thread.qualityOfService = .userInteractive
@@ -105,19 +140,30 @@ private final class TapContext: @unchecked Sendable {
     }
 
     func stop() {
-        let (tap, loop) = lock.withLock { () -> (CFMachPort?, CFRunLoop?) in
+        let (taps, loop) = lock.withLock { () -> ([CFMachPort], CFRunLoop?) in
             stopped = true
-            return (self.tap, runLoop)
+            return ([tap, keysTap].compactMap { $0 }, runLoop)
         }
-        // Disable right away so the old tap cannot deliver events while the thread winds down.
-        if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
+        // Disable right away so the old taps cannot deliver events while the thread winds down.
+        for tap in taps { CGEvent.tapEnable(tap: tap, enable: false) }
         if let loop { CFRunLoopStop(loop) }
     }
 
-    private func makeTap() -> CFMachPort? {
-        let mask = (1 << CGEventType.keyDown.rawValue)
-            | (1 << CGEventType.keyUp.rawValue)
-            | (1 << CGEventType.flagsChanged.rawValue)
+    /// From the main thread: Murmur is recording or working (or not any more).
+    func setWatchKeys(_ on: Bool) {
+        lock.withLock { watchKeys = on }
+        updateKeysTap()
+    }
+
+    /// The keys tap is on while the hotkey is held or Murmur wants Esc; off otherwise.
+    private func updateKeysTap() {
+        let (keys, on) = lock.withLock { (keysTap, !stopped && (watchKeys || hotkeyHeld)) }
+        if let keys { CGEvent.tapEnable(tap: keys, enable: on) }
+    }
+
+    private static func mask(_ type: CGEventType) -> UInt64 { 1 << UInt64(type.rawValue) }
+
+    private func makeTap(mask: UInt64) -> CFMachPort? {
         // Listening needs Input Monitoring; swallowing a shortcut needs an active tap (Accessibility).
         let options: CGEventTapOptions = spec.isModifierOnly ? .listenOnly : .defaultTap
         let callback: CGEventTapCallBack = { _, type, event, userInfo in
@@ -143,6 +189,7 @@ private final class TapContext: @unchecked Sendable {
             // macOS turned the tap off, so key-ups may have been missed. Turn it back on and
             // ask the hardware whether the hotkey is really still down.
             if let tap = lock.withLock({ self.tap }) { CGEvent.tapEnable(tap: tap, enable: true) }
+            updateKeysTap()
             if hotkeyIsDown && !hotkeyPhysicallyDown() { setHotkey(down: false) }
             return passThrough
         }
@@ -216,6 +263,10 @@ private final class TapContext: @unchecked Sendable {
     private func setHotkey(down: Bool) {
         guard down != hotkeyIsDown else { return }
         hotkeyIsDown = down
+        // Keys pressed with the hotkey (fn+F5, fn+←) must be seen from the very next event, before
+        // the main thread has heard of the press, so the tap switches itself on here.
+        lock.withLock { hotkeyHeld = down }
+        updateKeysTap()
         send(down ? .hotkeyDown : .hotkeyUp)
     }
 

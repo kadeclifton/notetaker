@@ -108,6 +108,24 @@ final class MeetingFilesTests: XCTestCase {
 }
 
 final class CallDetectorTests: XCTestCase {
+    func testStopsWantingToLookOnceItHasDecided() {
+        var detector = CallDetector(settle: 5)
+        let t0 = Date(timeIntervalSince1970: 1000)
+        XCTAssertFalse(detector.wantsAnotherLook(now: t0), "nothing busy: nothing to watch")
+        // A mic busy without a meeting app: watch while it settles, then stop.
+        XCTAssertNil(detector.update(micBusy: true, runningApps: ["com.apple.VoiceMemos"], murmurRecording: false, now: t0))
+        XCTAssertTrue(detector.wantsAnotherLook(now: t0.addingTimeInterval(2)))
+        XCTAssertNil(detector.update(micBusy: true, runningApps: ["com.apple.VoiceMemos"], murmurRecording: false, now: t0.addingTimeInterval(6)))
+        XCTAssertFalse(detector.wantsAnotherLook(now: t0.addingTimeInterval(6.5)))
+        // A meeting app launching later still gets its offer, from the launch notification's look.
+        XCTAssertEqual(detector.update(micBusy: true, runningApps: ["us.zoom.xos"], murmurRecording: false, now: t0.addingTimeInterval(60)), "Zoom")
+        XCTAssertFalse(detector.wantsAnotherLook(now: t0.addingTimeInterval(61)), "offered: done until the mic goes quiet")
+        // Murmur's own recording: never offered, so nothing to watch.
+        var recording = CallDetector(settle: 5)
+        XCTAssertNil(recording.update(micBusy: true, runningApps: ["us.zoom.xos"], murmurRecording: true, now: t0))
+        XCTAssertFalse(recording.wantsAnotherLook(now: t0.addingTimeInterval(1)))
+    }
+
     func testOffersOncePerCallAfterSettling() {
         var detector = CallDetector(settle: 5)
         let t0 = Date(timeIntervalSince1970: 1000)
