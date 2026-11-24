@@ -105,10 +105,11 @@ private final class TapContext: @unchecked Sendable {
                 return
             }
             let loop = CFRunLoopGetCurrent()
-            let sources = [tap, keys].compactMap { $0 }.map { port -> CFRunLoopSource in
-                let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
+            var sources: [CFRunLoopSource] = []
+            for port in [tap, keys].compactMap({ $0 }) {
+                guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0) else { continue }
                 CFRunLoopAddSource(loop, source, .commonModes)
-                return source
+                sources.append(source)
             }
             CGEvent.tapEnable(tap: tap, enable: true)
             if let keys { CGEvent.tapEnable(tap: keys, enable: false) }
@@ -133,7 +134,7 @@ private final class TapContext: @unchecked Sendable {
             for source in sources { CFRunLoopRemoveSource(loop, source, .commonModes) }
         }
         thread.name = "Murmur hotkey tap"
-        thread.qualityOfService = .userInteractive
+        thread.qualityOfService = QualityOfService.userInteractive
         thread.start()
         ready.wait()
         return created.value
