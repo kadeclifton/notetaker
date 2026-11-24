@@ -50,10 +50,12 @@ final class CallWatcher {
     }
 
     private var detector = CallDetector()
-    /// Only runs while a microphone is in use, to see it stay busy for a few seconds.
+    /// Only runs for the few seconds a newly busy microphone takes to settle; after that, macOS
+    /// announces what could change the answer (the mic going quiet, an app launching).
     private var timer: Timer?
     private var stopObservingDevices: (() -> Void)?
     private var stopObservingUse: (() -> Void)?
+    private var launchObserver: NSObjectProtocol?
     private var panel: NSPanel?
     private var closeTimer: Timer?
 
@@ -65,12 +67,19 @@ final class CallWatcher {
         stopObservingDevices = nil
         stopObservingUse?()
         stopObservingUse = nil
+        if let launchObserver { NSWorkspace.shared.notificationCenter.removeObserver(launchObserver) }
+        launchObserver = nil
         detector = CallDetector()
         guard enabled else {
             if showing == .start { dismiss() }
             return
         }
         stopObservingDevices = AudioDevices.observeChanges { [weak self] in self?.observeMicrophones() }
+        // A call app opened while some other app already holds the mic.
+        launchObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.poll() }
+        }
         observeMicrophones()
     }
 
@@ -83,22 +92,26 @@ final class CallWatcher {
     private func poll() {
         let murmur = isMurmurRecording()
         let busy = murmur || AudioDevices.anyInputInUse()
-        // Keep looking every 2 s only while the mic is busy, until the offer is made or it goes quiet.
-        if busy, timer == nil {
-            timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.poll() }
-            }
-        } else if !busy {
-            timer?.invalidate()
-            timer = nil
-        }
         var apps = NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)
         if let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier {
             apps.removeAll { $0 == front }
             apps.insert(front, at: 0)
         }
         if showing == .start, murmur || !busy { dismiss() }
-        if let app = detector.update(micBusy: busy, runningApps: apps, murmurRecording: murmur) {
+        let offer = detector.update(micBusy: busy, runningApps: apps, murmurRecording: murmur)
+        // Look again every 2 s only while that can still change the answer: for a call, the first
+        // few seconds; never for the rest of it, nor while Murmur itself records.
+        if detector.wantsAnotherLook() {
+            if timer == nil {
+                timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+                    Task { @MainActor [weak self] in self?.poll() }
+                }
+            }
+        } else {
+            timer?.invalidate()
+            timer = nil
+        }
+        if let app = offer {
             present(.start,
                     title: "Take notes for this call?",
                     message: "Looks like a call started in \(app). Murmur can transcribe it and write a summary when it ends. Let the others know.",

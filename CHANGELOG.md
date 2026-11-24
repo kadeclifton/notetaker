@@ -3,6 +3,15 @@
 What changed in each Murmur release. Betas of a version carry its list as it grows. Older releases
 are on the [releases page](https://github.com/kadeclifton/notetaker/releases).
 
+## 0.2.8
+
+- **Much lighter on battery in the background.** Murmur no longer wakes up every second while you
+  are not dictating, and typing in other apps no longer wakes it at all: it watches only the fn
+  key until you start dictating. During a call it stops checking every 2 seconds once it has
+  offered to take notes, and while it records the meeting itself.
+- **Tip:** for dictation itself, Apple's engine (Settings → Speech, macOS 26) or **Use the Neural
+  Engine** with Whisper use far less power than Whisper on the GPU.
+
 ## 0.2.7
 
 - **Settings opens properly again.** In 0.2.5 and 0.2.6 the Settings window could come up blank; it is back

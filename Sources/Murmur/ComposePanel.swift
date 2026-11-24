@@ -66,6 +66,8 @@ final class ComposeController: NSObject, NSWindowDelegate {
     var onTiming: ((String) -> Void)?
     /// Text that was inserted (with how) or copied (nil), for the Recent list.
     var onDelivered: ((String, TextInserter.Outcome?) -> Void)?
+    /// The panel appeared (true) or went away (false).
+    var onVisibilityChange: ((Bool) -> Void)?
 
     init(inserter: TextInserter) {
         self.inserter = inserter
@@ -187,6 +189,7 @@ final class ComposeController: NSObject, NSWindowDelegate {
         session = nil
         setup = nil
         panel?.orderOut(nil)
+        onVisibilityChange?(false)
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -247,6 +250,7 @@ final class ComposeController: NSObject, NSWindowDelegate {
         }
         // Takes the keyboard (⏎, Esc) without activating Murmur, so the app underneath stays in front.
         panel.makeKeyAndOrderFront(nil)
+        onVisibilityChange?(true)
     }
 
     private static func describe(_ source: ComposeStyle.Source) -> String {

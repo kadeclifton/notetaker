@@ -551,7 +551,7 @@ private struct SpeechTab: View {
         case .local: return "Whisper runs on this Mac with the speech model below. Best with names and vocabulary."
         case .apple:
             return appleAvailable
-                ? "Built into macOS: no model to download, no memory used while idle, and your words show as you talk. Vocabulary is Whisper's; corrections work with both."
+                ? "Built into macOS: no model to download, light on battery, no memory used while idle, and your words show as you talk. Vocabulary is Whisper's; corrections work with both."
                 : "Needs macOS 26 or later. Pick Whisper on this Mac."
         case .groq, .openai: return "Sent to \(engine == .groq ? "Groq" : "OpenAI") with your API key."
         }

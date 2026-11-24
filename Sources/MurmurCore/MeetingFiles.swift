@@ -152,6 +152,15 @@ public struct CallDetector: Sendable {
         offered = true
         return app
     }
+
+    /// Whether looking again soon could change the answer: the microphone is busy, nothing has been
+    /// offered for it, and it has not been busy long enough to settle. Once it has, only a meeting
+    /// app starting or the microphone going quiet changes anything, and both are announced, so
+    /// there is no need to keep checking every couple of seconds for the rest of the call.
+    public func wantsAnotherLook(now: Date = Date()) -> Bool {
+        guard let busySince, !offered else { return false }
+        return now.timeIntervalSince(busySince) < settle + 1
+    }
 }
 
 /// What "Copy Diagnostics" puts on the clipboard: settings and state, never anything dictated.
